@@ -1,5 +1,5 @@
 <?php
-/**  
+/**   
  * Plugin Name: SNN Learn
  * Description: Complete learning platform with video tracking, certificates, strikes, and course management
  * Version: 1.3
