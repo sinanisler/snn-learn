@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: SNN Learn
+ * Plugin Name: SNN Learn 
  * Description: A modern, high-performance LMS plugin for WordPress.
  * Version: 1.2
  * Author: Sinan Isler
