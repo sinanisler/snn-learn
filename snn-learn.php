@@ -1,5 +1,5 @@
 <?php
-/**
+/** 
  * Plugin Name: SNN Learn
  * Description: A modern, high-performance LMS plugin for WordPress.
  * Version: 1.0.0
