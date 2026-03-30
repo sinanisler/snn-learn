@@ -70,7 +70,7 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     --shadow-md: 0 4px 12px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.04);
   }
 
-  .snn-dashboard-wrap {
+  .snn-learn-dashboard-wrap {
     font-family: 'DM Sans', sans-serif;
     background: var(--bg);
     color: var(--text);
@@ -81,13 +81,13 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
   }
 
   /* ── KPI STRIP ── */
-  .kpi-grid {
+  .snn-learn-kpi-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 14px;
     margin-bottom: 22px;
   }
-  .kpi-card {
+  .snn-learn-kpi-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -97,33 +97,33 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     overflow: hidden;
     transition: box-shadow .2s, transform .2s;
   }
-  .kpi-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-  .kpi-card::before {
+  .snn-learn-kpi-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+  .snn-learn-kpi-card::before {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 3px;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
-  .kpi-card.blue::before   { background: var(--accent); }
-  .kpi-card.green::before  { background: var(--green); }
-  .kpi-card.amber::before  { background: var(--amber); }
-  .kpi-card.red::before    { background: var(--red); }
+  .snn-learn-kpi-card.blue::before   { background: var(--accent); }
+  .snn-learn-kpi-card.green::before  { background: var(--green); }
+  .snn-learn-kpi-card.amber::before  { background: var(--amber); }
+  .snn-learn-kpi-card.red::before    { background: var(--red); }
 
-  .kpi-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
-  .kpi-icon {
+  .snn-learn-kpi-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+  .snn-learn-kpi-icon {
     width: 36px; height: 36px;
     border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-  .kpi-icon svg { width: 18px; height: 18px; }
-  .kpi-icon.blue   { background: var(--accent-lt); color: var(--accent); }
-  .kpi-icon.green  { background: var(--green-lt);  color: var(--green); }
-  .kpi-icon.amber  { background: var(--amber-lt);  color: var(--amber); }
-  .kpi-icon.red    { background: var(--red-lt);    color: var(--red); }
+  .snn-learn-kpi-icon svg { width: 18px; height: 18px; }
+  .snn-learn-kpi-icon.blue   { background: var(--accent-lt); color: var(--accent); }
+  .snn-learn-kpi-icon.green  { background: var(--green-lt);  color: var(--green); }
+  .snn-learn-kpi-icon.amber  { background: var(--amber-lt);  color: var(--amber); }
+  .snn-learn-kpi-icon.red    { background: var(--red-lt);    color: var(--red); }
 
-  .kpi-delta {
+  .snn-learn-kpi-delta {
     font-size: 11px;
     font-weight: 500;
     padding: 3px 8px;
@@ -132,11 +132,11 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     align-items: center;
     gap: 3px;
   }
-  .kpi-delta.up   { background: var(--green-lt); color: var(--green); }
-  .kpi-delta.down { background: var(--red-lt);   color: var(--red); }
-  .kpi-delta.neu  { background: var(--bg);        color: var(--text3); }
+  .snn-learn-kpi-delta.up   { background: var(--green-lt); color: var(--green); }
+  .snn-learn-kpi-delta.down { background: var(--red-lt);   color: var(--red); }
+  .snn-learn-kpi-delta.neu  { background: var(--bg);        color: var(--text3); }
 
-  .kpi-value {
+  .snn-learn-kpi-value {
     font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 32px;
     font-weight: 700;
@@ -145,39 +145,39 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     margin-bottom: 4px;
     letter-spacing: -1px;
   }
-  .kpi-label { font-size: 12.5px; color: var(--text3); font-weight: 400; }
-  .kpi-sub {
+  .snn-learn-kpi-label { font-size: 12.5px; color: var(--text3); font-weight: 400; }
+  .snn-learn-kpi-sub {
     margin-top: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--border);
     font-size: 11.5px;
     color: var(--text3);
   }
-  .kpi-sub strong { color: var(--text2); font-weight: 500; }
+  .snn-learn-kpi-sub strong { color: var(--text2); font-weight: 500; }
 
   /* ── SPARKLINE ── */
-  .sparkline { width: 100%; height: 36px; margin-top: 10px; }
+  .snn-learn-sparkline { width: 100%; height: 36px; margin-top: 10px; }
 
   /* ── TWO COLUMN ── */
-  .two-col { display: grid; grid-template-columns: 1fr 380px; gap: 16px; margin-bottom: 16px; }
-  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .snn-learn-two-col { display: grid; grid-template-columns: 1fr 380px; gap: 16px; margin-bottom: 16px; }
+  .snn-learn-three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
 
   /* ── CARD ── */
-  .card {
+  .snn-learn-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow);
     overflow: hidden;
   }
-  .card-header {
+  .snn-learn-card-header {
     padding: 18px 22px 14px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--border);
   }
-  .card-title {
+  .snn-learn-card-title {
     font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 14.5px;
     font-weight: 600;
@@ -186,15 +186,15 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     align-items: center;
     gap: 8px;
   }
-  .card-title svg { width: 15px; height: 15px; color: var(--text3); }
-  .card-meta { font-size: 12px; color: var(--text3); }
-  .card-actions { display: flex; align-items: center; gap: 8px; }
-  .card-body { padding: 20px 22px; }
-  .card-body-flush { padding: 0; }
+  .snn-learn-card-title svg { width: 15px; height: 15px; color: var(--text3); }
+  .snn-learn-card-meta { font-size: 12px; color: var(--text3); }
+  .snn-learn-card-actions { display: flex; align-items: center; gap: 8px; }
+  .snn-learn-card-body { padding: 20px 22px; }
+  .snn-learn-card-body-flush { padding: 0; }
 
   /* ── TABLE ── */
-  table { width: 100%; border-collapse: collapse; }
-  thead th {
+  .snn-learn-table-wrap table { width: 100%; border-collapse: collapse; }
+  .snn-learn-table-wrap thead th {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: .5px;
@@ -205,38 +205,38 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     background: var(--surface2);
     border-bottom: 1px solid var(--border);
   }
-  thead th:last-child { text-align: right; }
-  tbody tr {
+  .snn-learn-table-wrap thead th:last-child { text-align: right; }
+  .snn-learn-table-wrap tbody tr {
     border-bottom: 1px solid var(--border);
     transition: background .1s;
   }
-  tbody tr:last-child { border-bottom: none; }
-  tbody tr:hover { background: var(--surface2); }
-  tbody td {
+  .snn-learn-table-wrap tbody tr:last-child { border-bottom: none; }
+  .snn-learn-table-wrap tbody tr:hover { background: var(--surface2); }
+  .snn-learn-table-wrap tbody td {
     padding: 12px 22px;
     font-size: 13.5px;
     color: var(--text2);
     vertical-align: middle;
   }
-  tbody td:last-child { text-align: right; }
-  tbody td:first-child { color: var(--text); font-weight: 500; }
+  .snn-learn-table-wrap tbody td:last-child { text-align: right; }
+  .snn-learn-table-wrap tbody td:first-child { color: var(--text); font-weight: 500; }
 
   /* ── PROGRESS BAR ── */
-  .prog-wrap { display: flex; align-items: center; gap: 10px; }
-  .prog-bar {
+  .snn-learn-prog-wrap { display: flex; align-items: center; gap: 10px; }
+  .snn-learn-prog-bar {
     flex: 1; height: 6px; background: var(--border); border-radius: 99px; overflow: hidden;
   }
-  .prog-fill {
+  .snn-learn-prog-fill {
     height: 100%; border-radius: 99px;
     background: var(--green);
     transition: width .5s ease;
   }
-  .prog-fill.mid { background: var(--amber); }
-  .prog-fill.low { background: var(--red); }
-  .prog-pct { font-size: 12px; font-weight: 600; color: var(--text); min-width: 30px; text-align: right; }
+  .snn-learn-prog-fill.mid { background: var(--amber); }
+  .snn-learn-prog-fill.low { background: var(--red); }
+  .snn-learn-prog-pct { font-size: 12px; font-weight: 600; color: var(--text); min-width: 30px; text-align: right; }
 
   /* ── CHIP / BADGE ── */
-  .chip {
+  .snn-learn-chip {
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -246,15 +246,15 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     border-radius: 20px;
     white-space: nowrap;
   }
-  .chip.green  { background: var(--green-lt);  color: var(--green); }
-  .chip.amber  { background: var(--amber-lt);  color: var(--amber); }
-  .chip.red    { background: var(--red-lt);    color: var(--red); }
-  .chip.blue   { background: var(--accent-lt); color: var(--accent); }
-  .chip.gray   { background: var(--bg);        color: var(--text3); }
-  .chip::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+  .snn-learn-chip.green  { background: var(--green-lt);  color: var(--green); }
+  .snn-learn-chip.amber  { background: var(--amber-lt);  color: var(--amber); }
+  .snn-learn-chip.red    { background: var(--red-lt);    color: var(--red); }
+  .snn-learn-chip.blue   { background: var(--accent-lt); color: var(--accent); }
+  .snn-learn-chip.gray   { background: var(--bg);        color: var(--text3); }
+  .snn-learn-chip::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
   /* ── AVATAR ── */
-  .avatar {
+  .snn-learn-avatar {
     width: 28px; height: 28px;
     border-radius: 50%;
     background: var(--accent-lt);
@@ -267,12 +267,12 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     flex-shrink: 0;
     letter-spacing: .3px;
   }
-  .avatar-wrap { display: flex; align-items: center; gap: 9px; }
-  .avatar-name { font-size: 13.5px; font-weight: 500; color: var(--text); }
-  .avatar-email { font-size: 11px; color: var(--text3); }
+  .snn-learn-avatar-wrap { display: flex; align-items: center; gap: 9px; }
+  .snn-learn-avatar-name { font-size: 13.5px; font-weight: 500; color: var(--text); }
+  .snn-learn-avatar-email { font-size: 11px; color: var(--text3); }
 
   /* ── MINI STATS ── */
-  .mini-stat-row {
+  .snn-learn-mini-stat-row {
     display: flex;
     gap: 0;
     border-radius: var(--radius-lg);
@@ -282,13 +282,13 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     background: var(--surface);
     box-shadow: var(--shadow);
   }
-  .mini-stat {
+  .snn-learn-mini-stat {
     flex: 1;
     padding: 16px 20px;
     border-right: 1px solid var(--border);
   }
-  .mini-stat:last-child { border-right: none; }
-  .mini-stat-val {
+  .snn-learn-mini-stat:last-child { border-right: none; }
+  .snn-learn-mini-stat-val {
     font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 22px;
     font-weight: 700;
@@ -297,18 +297,18 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     line-height: 1;
     margin-bottom: 3px;
   }
-  .mini-stat-lbl { font-size: 11.5px; color: var(--text3); }
+  .snn-learn-mini-stat-lbl { font-size: 11.5px; color: var(--text3); }
 
   /* ── CHART AREA ── */
-  .chart-area { width: 100%; height: 180px; position: relative; }
-  .chart-canvas { width: 100%; height: 100%; }
+  .snn-learn-chart-area { width: 100%; height: 180px; position: relative; }
+  .snn-learn-chart-canvas { width: 100%; height: 100%; }
 
   /* ── FUNNEL ── */
-  .funnel { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
-  .funnel-row { display: flex; align-items: center; gap: 12px; }
-  .funnel-label { font-size: 12px; color: var(--text2); width: 80px; flex-shrink: 0; text-align: right; }
-  .funnel-bar-wrap { flex: 1; }
-  .funnel-bar {
+  .snn-learn-funnel { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+  .snn-learn-funnel-row { display: flex; align-items: center; gap: 12px; }
+  .snn-learn-funnel-label { font-size: 12px; color: var(--text2); width: 80px; flex-shrink: 0; text-align: right; }
+  .snn-learn-funnel-bar-wrap { flex: 1; }
+  .snn-learn-funnel-bar {
     height: 28px;
     border-radius: 6px;
     display: flex;
@@ -319,11 +319,11 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     color: white;
     transition: width .6s ease;
   }
-  .funnel-count { font-size: 12px; color: var(--text3); width: 50px; text-align: right; flex-shrink: 0; }
+  .snn-learn-funnel-count { font-size: 12px; color: var(--text3); width: 50px; text-align: right; flex-shrink: 0; }
 
   /* ── AT-RISK ── */
-  .risk-list { display: flex; flex-direction: column; gap: 0; }
-  .risk-item {
+  .snn-learn-risk-list { display: flex; flex-direction: column; gap: 0; }
+  .snn-learn-risk-item {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -331,9 +331,9 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     border-bottom: 1px solid var(--border);
     transition: background .1s;
   }
-  .risk-item:last-child { border-bottom: none; }
-  .risk-item:hover { background: var(--surface2); }
-  .risk-days {
+  .snn-learn-risk-item:last-child { border-bottom: none; }
+  .snn-learn-risk-item:hover { background: var(--surface2); }
+  .snn-learn-risk-days {
     margin-left: auto;
     font-size: 11.5px;
     font-weight: 600;
@@ -344,33 +344,33 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     white-space: nowrap;
     flex-shrink: 0;
   }
-  .risk-course { font-size: 11px; color: var(--text3); }
+  .snn-learn-risk-course { font-size: 11px; color: var(--text3); }
 
   /* ── ACTIVITY FEED ── */
-  .feed { display: flex; flex-direction: column; gap: 0; }
-  .feed-item {
+  .snn-learn-feed { display: flex; flex-direction: column; gap: 0; }
+  .snn-learn-feed-item {
     display: flex;
     gap: 12px;
     padding: 12px 22px;
     border-bottom: 1px solid var(--border);
     align-items: flex-start;
   }
-  .feed-item:last-child { border-bottom: none; }
-  .feed-dot {
+  .snn-learn-feed-item:last-child { border-bottom: none; }
+  .snn-learn-feed-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
     background: var(--accent);
     margin-top: 5px;
     flex-shrink: 0;
   }
-  .feed-dot.green { background: var(--green); }
-  .feed-dot.amber { background: var(--amber); }
-  .feed-text { font-size: 13px; color: var(--text2); line-height: 1.4; flex: 1; }
-  .feed-text strong { color: var(--text); font-weight: 500; }
-  .feed-time { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  .snn-learn-feed-dot.green { background: var(--green); }
+  .snn-learn-feed-dot.amber { background: var(--amber); }
+  .snn-learn-feed-text { font-size: 13px; color: var(--text2); line-height: 1.4; flex: 1; }
+  .snn-learn-feed-text strong { color: var(--text); font-weight: 500; }
+  .snn-learn-feed-time { font-size: 11px; color: var(--text3); margin-top: 2px; }
 
   /* ── TABS ── */
-  .tab-bar {
+  .snn-learn-tab-bar {
     display: flex;
     gap: 2px;
     padding: 4px;
@@ -378,7 +378,7 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     border-radius: 10px;
     width: fit-content;
   }
-  .tab-btn {
+  .snn-learn-tab-btn {
     padding: 6px 16px;
     border-radius: 8px;
     border: none;
@@ -390,7 +390,7 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     cursor: pointer;
     transition: all .15s;
   }
-  .tab-btn.active {
+  .snn-learn-tab-btn.active {
     background: var(--surface);
     color: var(--text);
     font-weight: 500;
@@ -398,8 +398,8 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
   }
 
   /* ── SEARCH ── */
-  .search-wrap { position: relative; }
-  .search-wrap input {
+  .snn-learn-search-wrap { position: relative; }
+  .snn-learn-search-wrap input {
     width: 220px;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -411,8 +411,8 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     outline: none;
     transition: border-color .15s, background .15s;
   }
-  .search-wrap input:focus { border-color: var(--accent); background: var(--surface); }
-  .search-wrap svg {
+  .snn-learn-search-wrap input:focus { border-color: var(--accent); background: var(--surface); }
+  .snn-learn-search-wrap svg {
     position: absolute;
     left: 10px; top: 50%;
     transform: translateY(-50%);
@@ -422,7 +422,7 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
   }
 
   /* ── COURSE DOT ── */
-  .course-dot {
+  .snn-learn-course-dot {
     width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; flex-shrink: 0;
   }
 
@@ -431,156 +431,156 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     from { opacity: 0; transform: translateY(10px); }
     to   { opacity: 1; transform: translateY(0); }
   }
-  .kpi-card { animation: fadeUp .35s ease both; }
-  .kpi-card:nth-child(1) { animation-delay: .05s; }
-  .kpi-card:nth-child(2) { animation-delay: .10s; }
-  .kpi-card:nth-child(3) { animation-delay: .15s; }
-  .kpi-card:nth-child(4) { animation-delay: .20s; }
-  .card { animation: fadeUp .4s ease both; animation-delay: .25s; }
+  .snn-learn-kpi-card { animation: fadeUp .35s ease both; }
+  .snn-learn-kpi-card:nth-child(1) { animation-delay: .05s; }
+  .snn-learn-kpi-card:nth-child(2) { animation-delay: .10s; }
+  .snn-learn-kpi-card:nth-child(3) { animation-delay: .15s; }
+  .snn-learn-kpi-card:nth-child(4) { animation-delay: .20s; }
+  .snn-learn-card { animation: fadeUp .4s ease both; animation-delay: .25s; }
 </style>
 </head>
 <body>
 
-  <div class="snn-dashboard-wrap">
+  <div class="snn-learn-dashboard-wrap">
 
     <!-- ── KPI CARDS ── -->
-    <div class="kpi-grid">
+    <div class="snn-learn-kpi-grid">
       <!-- Total Enrolled -->
-      <div class="kpi-card blue">
-        <div class="kpi-top">
-          <div class="kpi-icon blue">
+      <div class="snn-learn-kpi-card blue">
+        <div class="snn-learn-kpi-top">
+          <div class="snn-learn-kpi-icon blue">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
           </div>
-          <div class="kpi-delta up">↑ 12%</div>
+          <div class="snn-learn-kpi-delta up">↑ 12%</div>
         </div>
-        <div class="kpi-value" id="kpi-total"><?php echo number_format($total_enrollments); ?></div>
-        <div class="kpi-label">Total Enrollments</div>
-        <div class="kpi-sub"><strong>+47</strong> in the last 30 days</div>
-        <svg class="sparkline" id="spark-total" viewBox="0 0 200 36" preserveAspectRatio="none"></svg>
+        <div class="snn-learn-kpi-value" id="kpi-total"><?php echo number_format($total_enrollments); ?></div>
+        <div class="snn-learn-kpi-label">Total Enrollments</div>
+        <div class="snn-learn-kpi-sub"><strong>+47</strong> in the last 30 days</div>
+        <svg class="snn-learn-sparkline" id="spark-total" viewBox="0 0 200 36" preserveAspectRatio="none"></svg>
       </div>
 
       <!-- Completion Rate -->
-      <div class="kpi-card green">
-        <div class="kpi-top">
-          <div class="kpi-icon green">
+      <div class="snn-learn-kpi-card green">
+        <div class="snn-learn-kpi-top">
+          <div class="snn-learn-kpi-icon green">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
-          <div class="kpi-delta up">↑ 4%</div>
+          <div class="snn-learn-kpi-delta up">↑ 4%</div>
         </div>
-        <div class="kpi-value" id="kpi-completion"><?php echo $completion_rate; ?>%</div>
-        <div class="kpi-label">Completion Rate</div>
-        <div class="kpi-sub"><strong><?php echo number_format($completed_count); ?></strong> of <?php echo number_format($total_enrollments); ?> finished</div>
-        <svg class="sparkline" id="spark-completion" viewBox="0 0 200 36" preserveAspectRatio="none"></svg>
+        <div class="snn-learn-kpi-value" id="kpi-completion"><?php echo $completion_rate; ?>%</div>
+        <div class="snn-learn-kpi-label">Completion Rate</div>
+        <div class="snn-learn-kpi-sub"><strong><?php echo number_format($completed_count); ?></strong> of <?php echo number_format($total_enrollments); ?> finished</div>
+        <svg class="snn-learn-sparkline" id="spark-completion" viewBox="0 0 200 36" preserveAspectRatio="none"></svg>
       </div>
 
       <!-- Active This Week -->
-      <div class="kpi-card amber">
-        <div class="kpi-top">
-          <div class="kpi-icon amber">
+      <div class="snn-learn-kpi-card amber">
+        <div class="snn-learn-kpi-top">
+          <div class="snn-learn-kpi-icon amber">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </div>
-          <div class="kpi-delta neu">→ 0%</div>
+          <div class="snn-learn-kpi-delta neu">→ 0%</div>
         </div>
-        <div class="kpi-value" id="kpi-active"><?php echo number_format($active_this_week); ?></div>
-        <div class="kpi-label">Active This Week</div>
-        <div class="kpi-sub"><strong><?php echo $total_enrollments > 0 ? round(($active_this_week / $total_enrollments) * 100, 1) : 0; ?>%</strong> of enrolled students</div>
-        <svg class="sparkline" id="spark-active" viewBox="0 0 200 36" preserveAspectRatio="none"></svg>
+        <div class="snn-learn-kpi-value" id="kpi-active"><?php echo number_format($active_this_week); ?></div>
+        <div class="snn-learn-kpi-label">Active This Week</div>
+        <div class="snn-learn-kpi-sub"><strong><?php echo $total_enrollments > 0 ? round(($active_this_week / $total_enrollments) * 100, 1) : 0; ?>%</strong> of enrolled students</div>
+        <svg class="snn-learn-sparkline" id="spark-active" viewBox="0 0 200 36" preserveAspectRatio="none"></svg>
       </div>
 
       <!-- Cold / At-Risk -->
-      <div class="kpi-card red">
-        <div class="kpi-top">
-          <div class="kpi-icon red">
+      <div class="snn-learn-kpi-card red">
+        <div class="snn-learn-kpi-top">
+          <div class="snn-learn-kpi-icon red">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </div>
-          <div class="kpi-delta down">↑ 8</div>
+          <div class="snn-learn-kpi-delta down">↑ 8</div>
         </div>
-        <div class="kpi-value" id="kpi-cold"><?php echo number_format($gone_cold); ?></div>
-        <div class="kpi-label">Gone Cold</div>
-        <div class="kpi-sub">No activity for <strong>&gt; 14 days</strong></div>
-        <svg class="sparkline" id="spark-cold" viewBox="0 0 200 36" preserveAspectRatio="none"></svg>
+        <div class="snn-learn-kpi-value" id="kpi-cold"><?php echo number_format($gone_cold); ?></div>
+        <div class="snn-learn-kpi-label">Gone Cold</div>
+        <div class="snn-learn-kpi-sub">No activity for <strong>&gt; 14 days</strong></div>
+        <svg class="snn-learn-sparkline" id="spark-cold" viewBox="0 0 200 36" preserveAspectRatio="none"></svg>
       </div>
     </div>
 
     <!-- ── MINI STAT ROW ── -->
-    <div class="mini-stat-row">
-      <div class="mini-stat">
-        <div class="mini-stat-val">7</div>
-        <div class="mini-stat-lbl">Active Courses</div>
+    <div class="snn-learn-mini-stat-row">
+      <div class="snn-learn-mini-stat">
+        <div class="snn-learn-mini-stat-val">7</div>
+        <div class="snn-learn-mini-stat-lbl">Active Courses</div>
       </div>
-      <div class="mini-stat">
-        <div class="mini-stat-val">4.1 days</div>
-        <div class="mini-stat-lbl">Avg. Time to Complete</div>
+      <div class="snn-learn-mini-stat">
+        <div class="snn-learn-mini-stat-val">4.1 days</div>
+        <div class="snn-learn-mini-stat-lbl">Avg. Time to Complete</div>
       </div>
-      <div class="mini-stat">
-        <div class="mini-stat-val">18.3%</div>
-        <div class="mini-stat-lbl">Drop-off Rate</div>
+      <div class="snn-learn-mini-stat">
+        <div class="snn-learn-mini-stat-val">18.3%</div>
+        <div class="snn-learn-mini-stat-lbl">Drop-off Rate</div>
       </div>
-      <div class="mini-stat">
-        <div class="mini-stat-val">Mar 2</div>
-        <div class="mini-stat-lbl">Peak Enrollment Day</div>
+      <div class="snn-learn-mini-stat">
+        <div class="snn-learn-mini-stat-val">Mar 2</div>
+        <div class="snn-learn-mini-stat-lbl">Peak Enrollment Day</div>
       </div>
-      <div class="mini-stat">
-        <div class="mini-stat-val">2.3h</div>
-        <div class="mini-stat-lbl">Avg. Time Between Sessions</div>
+      <div class="snn-learn-mini-stat">
+        <div class="snn-learn-mini-stat-val">2.3h</div>
+        <div class="snn-learn-mini-stat-lbl">Avg. Time Between Sessions</div>
       </div>
-      <div class="mini-stat">
-        <div class="mini-stat-val">41</div>
-        <div class="mini-stat-lbl">Completions This Month</div>
+      <div class="snn-learn-mini-stat">
+        <div class="snn-learn-mini-stat-val">41</div>
+        <div class="snn-learn-mini-stat-lbl">Completions This Month</div>
       </div>
     </div>
 
     <!-- ── CHART + FUNNEL ── -->
-    <div class="two-col">
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
+    <div class="snn-learn-two-col">
+      <div class="snn-learn-card">
+        <div class="snn-learn-card-header">
+          <div class="snn-learn-card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
             Enrollment Trend
           </div>
-          <div class="card-actions">
-            <div class="tab-bar">
-              <button class="tab-btn active">Enrollments</button>
-              <button class="tab-btn">Completions</button>
+          <div class="snn-learn-card-actions">
+            <div class="snn-learn-tab-bar">
+              <button class="snn-learn-tab-btn active">Enrollments</button>
+              <button class="snn-learn-tab-btn">Completions</button>
             </div>
           </div>
         </div>
-        <div class="card-body">
-          <div class="chart-area">
-            <canvas class="chart-canvas" id="trendChart"></canvas>
+        <div class="snn-learn-card-body">
+          <div class="snn-learn-chart-area">
+            <canvas class="snn-learn-chart-canvas" id="trendChart"></canvas>
           </div>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
+      <div class="snn-learn-card">
+        <div class="snn-learn-card-header">
+          <div class="snn-learn-card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
             Enrollment Funnel
           </div>
-          <div class="card-meta">All time</div>
+          <div class="snn-learn-card-meta">All time</div>
         </div>
-        <div class="card-body">
-          <div class="funnel">
-            <div class="funnel-row">
-              <div class="funnel-label">Enrolled</div>
-              <div class="funnel-bar-wrap"><div class="funnel-bar" style="background:#2563EB;width:100%">1,284</div></div>
-              <div class="funnel-count">100%</div>
+        <div class="snn-learn-card-body">
+          <div class="snn-learn-funnel">
+            <div class="snn-learn-funnel-row">
+              <div class="snn-learn-funnel-label">Enrolled</div>
+              <div class="snn-learn-funnel-bar-wrap"><div class="snn-learn-funnel-bar" style="background:#2563EB;width:100%">1,284</div></div>
+              <div class="snn-learn-funnel-count">100%</div>
             </div>
-            <div class="funnel-row">
-              <div class="funnel-label">Started</div>
-              <div class="funnel-bar-wrap"><div class="funnel-bar" style="background:#0EA5E9;width:87%">1,117</div></div>
-              <div class="funnel-count">87%</div>
+            <div class="snn-learn-funnel-row">
+              <div class="snn-learn-funnel-label">Started</div>
+              <div class="snn-learn-funnel-bar-wrap"><div class="snn-learn-funnel-bar" style="background:#0EA5E9;width:87%">1,117</div></div>
+              <div class="snn-learn-funnel-count">87%</div>
             </div>
-            <div class="funnel-row">
-              <div class="funnel-label">Active</div>
-              <div class="funnel-bar-wrap"><div class="funnel-bar" style="background:#059669;width:63%">811</div></div>
-              <div class="funnel-count">63%</div>
+            <div class="snn-learn-funnel-row">
+              <div class="snn-learn-funnel-label">Active</div>
+              <div class="snn-learn-funnel-bar-wrap"><div class="snn-learn-funnel-bar" style="background:#059669;width:63%">811</div></div>
+              <div class="snn-learn-funnel-count">63%</div>
             </div>
-            <div class="funnel-row">
-              <div class="funnel-label">Completed</div>
-              <div class="funnel-bar-wrap"><div class="funnel-bar" style="background:#16A34A;width:52%">668</div></div>
-              <div class="funnel-count">52%</div>
+            <div class="snn-learn-funnel-row">
+              <div class="snn-learn-funnel-label">Completed</div>
+              <div class="snn-learn-funnel-bar-wrap"><div class="snn-learn-funnel-bar" style="background:#16A34A;width:52%">668</div></div>
+              <div class="snn-learn-funnel-count">52%</div>
             </div>
           </div>
         </div>
@@ -588,12 +588,12 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
     </div>
 
     <!-- ── COURSE TABLE + AT-RISK ── -->
-    <div class="two-col">
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">Course Performance</div>
+    <div class="snn-learn-two-col">
+      <div class="snn-learn-card">
+        <div class="snn-learn-card-header">
+          <div class="snn-learn-card-title">Course Performance</div>
         </div>
-        <div class="card-body-flush">
+        <div class="snn-learn-card-body-flush">
           <table>
             <thead>
               <tr>
@@ -608,15 +608,15 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
                 $course_name = get_the_title($course->course_id) ?: 'Unknown Course';
                 $pct = $course->enrolled > 0 ? round(($course->completed / $course->enrolled) * 100) : 0;
                 $cls = $pct >= 65 ? '' : ($pct >= 40 ? ' mid' : ' low');
-                $status = $pct >= 65 ? '<span class="chip green">Healthy</span>' : ($pct >= 40 ? '<span class="chip amber">Moderate</span>' : '<span class="chip red">Low</span>');
+                $status = $pct >= 65 ? '<span class="snn-learn-chip green">Healthy</span>' : ($pct >= 40 ? '<span class="snn-learn-chip amber">Moderate</span>' : '<span class="snn-learn-chip red">Low</span>');
               ?>
               <tr>
-                <td><span class="course-dot" style="background:#2563EB"></span><?php echo esc_html($course_name); ?></td>
+                <td><span class="snn-learn-course-dot" style="background:#2563EB"></span><?php echo esc_html($course_name); ?></td>
                 <td><?php echo number_format($course->enrolled); ?></td>
                 <td>
-                  <div class="prog-wrap">
-                    <div class="prog-bar"><div class="prog-fill<?php echo $cls; ?>" style="width:<?php echo $pct; ?>%"></div></div>
-                    <div class="prog-pct"><?php echo $pct; ?>%</div>
+                  <div class="snn-learn-prog-wrap">
+                    <div class="snn-learn-prog-bar"><div class="snn-learn-prog-fill<?php echo $cls; ?>" style="width:<?php echo $pct; ?>%"></div></div>
+                    <div class="snn-learn-prog-pct"><?php echo $pct; ?>%</div>
                   </div>
                 </td>
                 <td><?php echo $status; ?></td>
@@ -627,25 +627,25 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">At-Risk Students</div>
-          <div class="card-meta">Cold &gt; 14 days</div>
+      <div class="snn-learn-card">
+        <div class="snn-learn-card-header">
+          <div class="snn-learn-card-title">At-Risk Students</div>
+          <div class="snn-learn-card-meta">Cold &gt; 14 days</div>
         </div>
-        <div class="risk-list" id="riskList">
+        <div class="snn-learn-risk-list" id="riskList">
           <?php foreach ($at_risk as $risk) : 
             $user = get_userdata($risk->user_id);
             $name = $user ? $user->display_name : 'Unknown';
             $initials = strtoupper(substr($name, 0, 1));
             $days = floor((time() - $risk->last_activity_at) / (24 * 60 * 60));
           ?>
-          <div class="risk-item">
-            <div class="avatar"><?php echo $initials; ?></div>
+          <div class="snn-learn-risk-item">
+            <div class="snn-learn-avatar"><?php echo $initials; ?></div>
             <div>
               <div style="font-size:13.5px;font-weight:500;color:var(--text)"><?php echo esc_html($name); ?></div>
-              <div class="risk-course"><?php echo get_the_title($risk->post_id); ?></div>
+              <div class="snn-learn-risk-course"><?php echo get_the_title($risk->post_id); ?></div>
             </div>
-            <div class="risk-days"><?php echo $days; ?>d inactive</div>
+            <div class="snn-learn-risk-days"><?php echo $days; ?>d inactive</div>
           </div>
           <?php endforeach; ?>
         </div>
