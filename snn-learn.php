@@ -47,7 +47,6 @@ register_activation_hook( __FILE__, 'snn_learn_create_table' );
 function snn_learn_defaults() {
     return [
         'course_post_type'       => 'course',
-        'lesson_post_type'       => 'lesson',
         'video_field'            => 'video_url',
         'video_color_primary'    => '#3b82f6',
         'video_color_bg'         => '#1e293b',
@@ -340,7 +339,7 @@ function snn_learn_settings_page() {
     if ( ! current_user_can( 'manage_options' ) ) return;
 
     if ( isset( $_POST['snn_learn_nonce'] ) && wp_verify_nonce( $_POST['snn_learn_nonce'], 'snn_learn_settings_save' ) ) {
-        $text_fields = [ 'course_post_type', 'lesson_post_type', 'video_field', 'video_color_primary', 'video_color_bg', 'video_color_text', 'video_complete_seconds' ];
+        $text_fields = [ 'course_post_type', 'video_field', 'video_color_primary', 'video_color_bg', 'video_color_text', 'video_complete_seconds' ];
         foreach ( $text_fields as $f ) {
             $val = isset( $_POST[ 'snn_learn_' . $f ] ) ? sanitize_text_field( wp_unslash( $_POST[ 'snn_learn_' . $f ] ) ) : '';
             update_option( 'snn_learn_' . $f, $val );
@@ -360,22 +359,13 @@ function snn_learn_settings_page() {
                     <th scope="row"><label for="snn_cpt">Course Post Type Slug</label></th>
                     <td>
                         <input type="text" id="snn_cpt" name="snn_learn_course_post_type" value="<?= esc_attr( snn_learn_get( 'course_post_type' ) ) ?>" class="regular-text">
-                        <p class="description">The post type slug for top-level course posts (e.g. <code>course</code>).</p>
-                    </td>
-                </tr>
-
-                <tr>
-                    <th scope="row"><label for="snn_lpt">Chapter &amp; Lesson Post Type Slug</label></th>
-                    <td>
-                        <input type="text" id="snn_lpt" name="snn_learn_lesson_post_type" value="<?= esc_attr( snn_learn_get( 'lesson_post_type' ) ) ?>" class="regular-text">
                         <p class="description">
-                            Chapters and lessons share <strong>one post type</strong>. Role is determined by hierarchy depth:<br>
-                            &nbsp;&nbsp;<strong>Chapter</strong> = direct child of a course post (<code>post_parent</code> = course ID).<br>
-                            &nbsp;&nbsp;<strong>Lesson</strong> = child of a chapter (<code>post_parent</code> = chapter ID).<br>
-                            Visiting a chapter URL auto-redirects to its first lesson.
+                            The <strong>single post type</strong> slug used for courses, chapters, and lessons (e.g. <code>course</code>).<br>
+                            Role is determined by depth: top-level = course &nbsp;/&nbsp; child of course = chapter &nbsp;/&nbsp; child of chapter = lesson.
                         </p>
                     </td>
                 </tr>
+
 
                 <tr>
                     <th scope="row"><label for="snn_vf">Video URL Custom Field Slug</label></th>
@@ -543,15 +533,13 @@ function snn_learn_shortcodes_page() {
 /**
  * Resolve the top-level course ID from any post in the hierarchy.
  *
- * Chapters and lessons share the same post type.
- * Role is determined by depth:
- *   course  (course_type)
- *   └─ chapter (lesson_type, post_parent = course_id)
- *      └─ lesson  (lesson_type, post_parent = chapter_id)
+ * One post type for everything. Role determined by depth:
+ *   course  = post_parent 0  (top-level)
+ *   chapter = post_parent = course ID
+ *   lesson  = post_parent = chapter ID
  *
- * So:
  *   course  → return itself
- *   chapter → post_parent is a course  → return post_parent
+ *   chapter → post_parent is the course
  *   lesson  → post_parent is a chapter → return chapter's post_parent
  */
 function snn_learn_get_course_id( $post_id = null ) {
@@ -559,37 +547,31 @@ function snn_learn_get_course_id( $post_id = null ) {
     $post = get_post( $post_id );
     if ( ! $post ) return 0;
 
-    $course_type = snn_learn_get( 'course_post_type' );
-    $lesson_type = snn_learn_get( 'lesson_post_type' );
+    $pt = snn_learn_get( 'course_post_type' );
+    if ( $post->post_type !== $pt ) return 0;
 
-    // It's a course itself
-    if ( $post->post_type === $course_type ) return (int) $post->ID;
+    // Top-level = course itself
+    if ( ! $post->post_parent ) return (int) $post->ID;
 
-    if ( $post->post_type === $lesson_type ) {
-        $parent = get_post( $post->post_parent );
-        if ( ! $parent ) return 0;
+    $parent = get_post( $post->post_parent );
+    if ( ! $parent ) return 0;
 
-        // Parent is a course → this post is a chapter
-        if ( $parent->post_type === $course_type ) return (int) $parent->ID;
+    // Parent is top-level → current post is a chapter
+    if ( ! $parent->post_parent ) return (int) $parent->ID;
 
-        // Parent is also lesson_type → this post is a lesson, parent is a chapter
-        if ( $parent->post_type === $lesson_type ) return (int) $parent->post_parent;
-    }
-
-    return 0;
+    // Parent has a parent → current post is a lesson, parent is a chapter
+    return (int) $parent->post_parent;
 }
 
 /**
  * Return an array of all lesson post IDs for a course, ordered by chapter then lesson menu_order.
- * Chapters and lessons share the same post type — chapters are direct children of the course,
- * lessons are children of chapters.
+ * One post type. Chapters = direct children of the course. Lessons = children of chapters.
  */
 function snn_learn_get_course_lessons( $course_id ) {
-    $lesson_type = snn_learn_get( 'lesson_post_type' );
+    $pt = snn_learn_get( 'course_post_type' );
 
-    // First level: chapters (lesson_type children of course)
     $chapters = get_posts( [
-        'post_type'      => $lesson_type,
+        'post_type'      => $pt,
         'post_parent'    => (int) $course_id,
         'posts_per_page' => -1,
         'orderby'        => 'menu_order',
@@ -600,9 +582,8 @@ function snn_learn_get_course_lessons( $course_id ) {
 
     $lesson_ids = [];
     foreach ( $chapters as $ch_id ) {
-        // Second level: lessons (lesson_type children of chapter)
         $lids = get_posts( [
-            'post_type'      => $lesson_type,
+            'post_type'      => $pt,
             'post_parent'    => $ch_id,
             'posts_per_page' => -1,
             'orderby'        => 'menu_order',
@@ -946,16 +927,16 @@ add_shortcode( 'snn_learn_progress', function ( $atts ) {
 add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
     $atts = shortcode_atts( [ 'course_id' => 0 ], $atts );
 
-    $course_id   = (int) $atts['course_id'] ?: snn_learn_get_course_id();
+    $course_id  = (int) $atts['course_id'] ?: snn_learn_get_course_id();
     if ( ! $course_id ) return '';
 
-    $lesson_type = snn_learn_get( 'lesson_post_type' ); // shared by chapters and lessons
-    $user_id     = get_current_user_id();
-    $current_id  = get_the_ID();
+    $pt         = snn_learn_get( 'course_post_type' );
+    $user_id    = get_current_user_id();
+    $current_id = get_the_ID();
 
-    // Chapters = lesson_type direct children of the course
+    // Chapters = direct children of the course
     $chapters = get_posts( [
-        'post_type'      => $lesson_type,
+        'post_type'      => $pt,
         'post_parent'    => $course_id,
         'posts_per_page' => -1,
         'orderby'        => 'menu_order',
@@ -982,9 +963,9 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
         echo '<div class="snn-chapter">';
         echo '<span class="snn-chapter-title">' . esc_html( $ch->post_title ) . '</span>';
 
-        // Lessons = lesson_type children of the chapter
+        // Lessons = children of the chapter
         $lessons = get_posts( [
-            'post_type'      => $lesson_type,
+            'post_type'      => $pt,
             'post_parent'    => $ch->ID,
             'posts_per_page' => -1,
             'orderby'        => 'menu_order',
@@ -1096,19 +1077,19 @@ add_shortcode( 'snn_learn_mark_completed', function ( $atts ) {
 add_action( 'template_redirect', function () {
     if ( ! is_singular() ) return;
 
-    $post        = get_post();
-    $lesson_type = snn_learn_get( 'lesson_post_type' );
-    $course_type = snn_learn_get( 'course_post_type' );
+    $post = get_post();
+    $pt   = snn_learn_get( 'course_post_type' );
 
-    if ( ! $post || $post->post_type !== $lesson_type ) return;
+    if ( ! $post || $post->post_type !== $pt ) return;
 
-    // A "chapter" is a lesson_type post whose parent is a course.
+    // A "chapter" has a parent (not top-level) whose parent is 0 (top-level = course).
+    if ( ! $post->post_parent ) return; // it's a course, skip
     $parent = get_post( $post->post_parent );
-    if ( ! $parent || $parent->post_type !== $course_type ) return;
+    if ( ! $parent || $parent->post_parent !== 0 ) return; // parent is not a course
 
-    // Redirect to first child lesson (lesson_type children of this chapter)
+    // This is a chapter — redirect to its first lesson child
     $first_lesson = get_posts( [
-        'post_type'      => $lesson_type,
+        'post_type'      => $pt,
         'post_parent'    => $post->ID,
         'posts_per_page' => 1,
         'orderby'        => 'menu_order',
