@@ -2210,129 +2210,882 @@ function snn_learn_dashboard_page() {
     }
     
     global $wpdb;
-    $data_table = $wpdb->prefix . 'snn_enrollments';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
-    // Get stats
-    $total_students = $wpdb->get_var("SELECT COUNT(DISTINCT user_id) FROM $data_table");
-    $total_completions = $wpdb->get_var("SELECT COUNT(*) FROM $data_table WHERE post_id = course_id AND completed_at IS NOT NULL");
+    // ══════════════════════════════════════════════════════════════
+    // CALCULATE ALL METRICS FROM REAL DATA
+    // ══════════════════════════════════════════════════════════════
     
-    // Most active courses
-    $active_courses = $wpdb->get_results("
-        SELECT course_id, COUNT(DISTINCT user_id) as student_count 
-        FROM $data_table 
+    // Total unique enrollments (distinct users who have enrolled in any course)
+    $total_enrolled = $wpdb->get_var("SELECT COUNT(DISTINCT user_id) FROM $table");
+    
+    // Total completed courses (where post_id = course_id AND completed)
+    $total_completed_courses = $wpdb->get_var("SELECT COUNT(*) FROM $table WHERE post_id = course_id AND completed_at IS NOT NULL");
+    
+    // Total enrollments (all course enrollments)
+    $total_enrollments = $wpdb->get_var("SELECT COUNT(DISTINCT CONCAT(user_id, '-', course_id)) FROM $table");
+    
+    // Completion rate
+    $completion_rate = $total_enrollments > 0 ? round(($total_completed_courses / $total_enrollments) * 100, 1) : 0;
+    
+    // Active this week (last 7 days)
+    $week_ago = time() - (7 * 86400);
+    $active_this_week = $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT user_id) FROM $table WHERE last_activity_at >= %d", $week_ago));
+    
+    // Gone cold (no activity for 14+ days)
+    $two_weeks_ago = time() - (14 * 86400);
+    $gone_cold = $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT user_id) FROM $table WHERE last_activity_at < %d", $two_weeks_ago));
+    
+    // Active courses (distinct courses with enrollments)
+    $active_courses = $wpdb->get_var("SELECT COUNT(DISTINCT course_id) FROM $table");
+    
+    // Avg time to complete (in days)
+    $avg_completion_time = $wpdb->get_var("SELECT AVG(completed_at - enrolled_at) FROM $table WHERE post_id = course_id AND completed_at IS NOT NULL");
+    $avg_days = $avg_completion_time ? round($avg_completion_time / 86400, 1) : 0;
+    
+    // Drop-off rate (users who enrolled but never completed)
+    $drop_off_rate = $total_enrolled > 0 ? round((($total_enrolled - $total_completed_courses) / $total_enrolled) * 100, 1) : 0;
+    
+    // Peak enrollment day
+    $peak_day = $wpdb->get_var("SELECT DATE(FROM_UNIXTIME(enrolled_at)) as day FROM $table GROUP BY day ORDER BY COUNT(*) DESC LIMIT 1");
+    $peak_day_formatted = $peak_day ? date('M j', strtotime($peak_day)) : 'N/A';
+    
+    // Completions this month
+    $month_start = strtotime('first day of this month 00:00:00');
+    $completions_this_month = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE post_id = course_id AND completed_at >= %d", $month_start));
+    
+    // Course performance data
+    $course_stats = $wpdb->get_results("
+        SELECT 
+            course_id,
+            COUNT(DISTINCT user_id) as enrolled,
+            COUNT(CASE WHEN post_id = course_id AND completed_at IS NOT NULL THEN 1 END) as completed,
+            COUNT(CASE WHEN last_activity_at < " . $two_weeks_ago . " THEN 1 END) as cold
+        FROM $table 
         GROUP BY course_id 
-        ORDER BY student_count DESC 
+        ORDER BY enrolled DESC 
         LIMIT 10
     ");
     
-    // Handle manual actions
-    if (isset($_POST['snn_manual_enroll']) && check_admin_referer('snn_manual_action')) {
-        $user_id = intval($_POST['user_id']);
-        $post_id = intval($_POST['post_id']);
-        snn_learn_auto_enroll($user_id, $post_id);
-        echo '<div class="notice notice-success"><p>' . __('User enrolled successfully.', 'snn') . '</p></div>';
+    // At-risk students (cold & not completed)
+    $at_risk_students = $wpdb->get_results($wpdb->prepare("
+        SELECT DISTINCT user_id, course_id, last_activity_at
+        FROM $table
+        WHERE last_activity_at < %d
+        AND post_id = course_id
+        AND completed_at IS NULL
+        ORDER BY last_activity_at ASC
+        LIMIT 10
+    ", $two_weeks_ago));
+    
+    // Recent enrollments
+    $recent_enrollments = $wpdb->get_results("
+        SELECT DISTINCT user_id, course_id, enrolled_at, completed_at
+        FROM $table
+        WHERE post_id = course_id
+        ORDER BY enrolled_at DESC
+        LIMIT 10
+    ");
+    
+    // Activity feed (recent completions and enrollments)
+    $recent_activity = $wpdb->get_results("
+        SELECT user_id, course_id, enrolled_at, completed_at, last_activity_at
+        FROM $table
+        WHERE post_id = course_id
+        ORDER BY GREATEST(COALESCE(completed_at, 0), COALESCE(last_activity_at, 0), enrolled_at) DESC
+        LIMIT 10
+    ");
+    
+    // Trend data (last 30 days)
+    $trend_data = $wpdb->get_results("
+        SELECT 
+            DATE(FROM_UNIXTIME(enrolled_at)) as date,
+            COUNT(*) as enrollments,
+            COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) as completions
+        FROM $table
+        WHERE enrolled_at >= " . (time() - (30 * 86400)) . "
+        AND post_id = course_id
+        GROUP BY date
+        ORDER BY date ASC
+    ");
+    
+    // Prepare chart data
+    $chart_labels = [];
+    $chart_enrollments = [];
+    $chart_completions = [];
+    foreach ($trend_data as $row) {
+        $chart_labels[] = date('M j', strtotime($row->date));
+        $chart_enrollments[] = $row->enrollments;
+        $chart_completions[] = $row->completions;
     }
     
-    // Get all data
-    $filter_course = isset($_GET['filter_course']) ? intval($_GET['filter_course']) : 0;
-    $filter_user = isset($_GET['filter_user']) ? intval($_GET['filter_user']) : 0;
-    $filter_status = isset($_GET['filter_status']) ? sanitize_text_field($_GET['filter_status']) : '';
-    
-    $where = ['1=1'];
-    if ($filter_course) $where[] = $wpdb->prepare('course_id = %d', $filter_course);
-    if ($filter_user) $where[] = $wpdb->prepare('user_id = %d', $filter_user);
-    if ($filter_status === 'completed') $where[] = 'completed_at IS NOT NULL';
-    if ($filter_status === 'started') $where[] = 'completed_at IS NULL';
-    
-    $where_sql = implode(' AND ', $where);
-    $all_data = $wpdb->get_results("SELECT * FROM $data_table WHERE $where_sql ORDER BY last_activity_at DESC LIMIT 100");
-    
     ?>
-    <div class="wrap">
-        <h1><?php _e('SNN Learn Dashboard', 'snn'); ?></h1>
+    <style>
+        /* Reset WordPress admin styles for our dashboard */
+        .snn-dashboard-shell { all: initial; * { all: unset; } }
+        .snn-dashboard-shell *, .snn-dashboard-shell *::before, .snn-dashboard-shell *::after { 
+            box-sizing: border-box; margin: 0; padding: 0; 
+        }
         
-        <div class="snn-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0;">
-            <div class="snn-stat-card" style="background: #fff; padding: 20px; border-left: 4px solid #2271b1;">
-                <h3><?php _e('Active Students', 'snn'); ?></h3>
-                <p style="font-size: 32px; font-weight: bold; margin: 0;"><?php echo $total_students; ?></p>
-            </div>
-            <div class="snn-stat-card" style="background: #fff; padding: 20px; border-left: 4px solid #00a32a;">
-                <h3><?php _e('Total Completions', 'snn'); ?></h3>
-                <p style="font-size: 32px; font-weight: bold; margin: 0;"><?php echo $total_completions; ?></p>
+        :root {
+            --bg:        #F4F3EF;
+            --surface:   #FFFFFF;
+            --surface2:  #FAFAF8;
+            --border:    #E8E6DF;
+            --border2:   #D5D2C8;
+            --text:      #18181B;
+            --text2:     #52525B;
+            --text3:     #A1A1AA;
+            --accent:    #2563EB;
+            --accent-lt: #EFF6FF;
+            --accent-dk: #1D4ED8;
+            --green:     #059669;
+            --green-lt:  #ECFDF5;
+            --amber:     #D97706;
+            --amber-lt:  #FFFBEB;
+            --red:       #DC2626;
+            --red-lt:    #FEF2F2;
+            --purple:    #7C3AED;
+            --purple-lt: #F5F3FF;
+            --radius:    10px;
+            --radius-lg: 16px;
+            --shadow:    0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+            --shadow-md: 0 4px 12px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.04);
+        }
+        
+        .snn-dashboard-shell {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.5;
+            margin: -20px -20px -20px -2px;
+            padding: 28px 32px 40px;
+        }
+        
+        .snn-dash-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+        
+        .snn-dash-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: -0.5px;
+        }
+        
+        .snn-dash-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .snn-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 9px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            border: 1px solid transparent;
+            transition: all .15s;
+            background: var(--accent);
+            color: white;
+        }
+        
+        .snn-btn:hover {
+            background: var(--accent-dk);
+            color: white;
+        }
+        
+        .snn-btn-ghost {
+            background: var(--surface);
+            border-color: var(--border);
+            color: var(--text2);
+        }
+        
+        .snn-btn-ghost:hover {
+            background: var(--bg);
+            color: var(--text);
+        }
+        
+        /* KPI Grid */
+        .snn-kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        
+        .snn-kpi-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 20px 22px;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .snn-kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        }
+        
+        .snn-kpi-card.blue::before   { background: var(--accent); }
+        .snn-kpi-card.green::before  { background: var(--green); }
+        .snn-kpi-card.amber::before  { background: var(--amber); }
+        .snn-kpi-card.red::before    { background: var(--red); }
+        
+        .snn-kpi-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        
+        .snn-kpi-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .snn-kpi-icon.blue   { background: var(--accent-lt); color: var(--accent); }
+        .snn-kpi-icon.green  { background: var(--green-lt);  color: var(--green); }
+        .snn-kpi-icon.amber  { background: var(--amber-lt);  color: var(--amber); }
+        .snn-kpi-icon.red    { background: var(--red-lt);    color: var(--red); }
+        
+        .snn-kpi-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--text);
+            line-height: 1;
+            margin-bottom: 4px;
+            letter-spacing: -1px;
+        }
+        
+        .snn-kpi-label {
+            font-size: 12.5px;
+            color: var(--text3);
+            font-weight: 400;
+        }
+        
+        .snn-kpi-sub {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+            font-size: 11.5px;
+            color: var(--text3);
+        }
+        
+        .snn-kpi-sub strong {
+            color: var(--text2);
+            font-weight: 500;
+        }
+        
+        /* Mini Stats */
+        .snn-mini-stat-row {
+            display: flex;
+            gap: 0;
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            border: 1px solid var(--border);
+            margin-bottom: 16px;
+            background: var(--surface);
+            box-shadow: var(--shadow);
+        }
+        
+        .snn-mini-stat {
+            flex: 1;
+            padding: 16px 20px;
+            border-right: 1px solid var(--border);
+        }
+        
+        .snn-mini-stat:last-child {
+            border-right: none;
+        }
+        
+        .snn-mini-stat-val {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: -.5px;
+            line-height: 1;
+            margin-bottom: 3px;
+        }
+        
+        .snn-mini-stat-lbl {
+            font-size: 11.5px;
+            color: var(--text3);
+        }
+        
+        /* Two Column Layout */
+        .snn-two-col {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        
+        /* Card */
+        .snn-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        
+        .snn-card-header {
+            padding: 18px 22px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .snn-card-title {
+            font-size: 14.5px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        
+        .snn-card-meta {
+            font-size: 12px;
+            color: var(--text3);
+        }
+        
+        .snn-card-body {
+            padding: 20px 22px;
+        }
+        
+        .snn-card-body-flush {
+            padding: 0;
+        }
+        
+        /* Table */
+        .snn-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .snn-table thead th {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: .5px;
+            text-transform: uppercase;
+            color: var(--text3);
+            padding: 10px 22px;
+            text-align: left;
+            background: var(--surface2);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .snn-table thead th:last-child {
+            text-align: right;
+        }
+        
+        .snn-table tbody tr {
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .snn-table tbody tr:last-child {
+            border-bottom: none;
+        }
+        
+        .snn-table tbody tr:hover {
+            background: var(--surface2);
+        }
+        
+        .snn-table tbody td {
+            padding: 12px 22px;
+            font-size: 13.5px;
+            color: var(--text2);
+            vertical-align: middle;
+        }
+        
+        .snn-table tbody td:last-child {
+            text-align: right;
+        }
+        
+        .snn-table tbody td:first-child {
+            color: var(--text);
+            font-weight: 500;
+        }
+        
+        /* Progress Bar */
+        .snn-prog-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .snn-prog-bar {
+            flex: 1;
+            height: 6px;
+            background: var(--border);
+            border-radius: 99px;
+            overflow: hidden;
+        }
+        
+        .snn-prog-fill {
+            height: 100%;
+            border-radius: 99px;
+            background: var(--green);
+        }
+        
+        .snn-prog-fill.mid { background: var(--amber); }
+        .snn-prog-fill.low { background: var(--red); }
+        
+        .snn-prog-pct {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+            min-width: 30px;
+            text-align: right;
+        }
+        
+        /* Chip */
+        .snn-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 3px 9px;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+        
+        .snn-chip.green  { background: var(--green-lt);  color: var(--green); }
+        .snn-chip.amber  { background: var(--amber-lt);  color: var(--amber); }
+        .snn-chip.red    { background: var(--red-lt);    color: var(--red); }
+        .snn-chip.blue   { background: var(--accent-lt); color: var(--accent); }
+        
+        .snn-chip::before {
+            content: '';
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+        
+        /* Avatar */
+        .snn-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--accent-lt);
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .snn-avatar-wrap {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
+        
+        .snn-avatar-name {
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--text);
+        }
+        
+        .snn-avatar-email {
+            font-size: 11px;
+            color: var(--text3);
+        }
+        
+        /* At-Risk List */
+        .snn-risk-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+        
+        .snn-risk-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 22px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .snn-risk-item:last-child {
+            border-bottom: none;
+        }
+        
+        .snn-risk-item:hover {
+            background: var(--surface2);
+        }
+        
+        .snn-risk-days {
+            margin-left: auto;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--red);
+            background: var(--red-lt);
+            padding: 3px 8px;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+        
+        .snn-risk-course {
+            font-size: 11px;
+            color: var(--text3);
+        }
+        
+        .snn-risk-info {
+            flex: 1;
+        }
+        
+        /* Activity Feed */
+        .snn-feed {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+        
+        .snn-feed-item {
+            display: flex;
+            gap: 12px;
+            padding: 12px 22px;
+            border-bottom: 1px solid var(--border);
+            align-items: flex-start;
+        }
+        
+        .snn-feed-item:last-child {
+            border-bottom: none;
+        }
+        
+        .snn-feed-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            margin-top: 5px;
+        }
+        
+        .snn-feed-dot.green { background: var(--green); }
+        .snn-feed-dot.amber { background: var(--amber); }
+        
+        .snn-feed-text {
+            font-size: 13px;
+            color: var(--text2);
+            line-height: 1.4;
+            flex: 1;
+        }
+        
+        .snn-feed-text strong {
+            color: var(--text);
+            font-weight: 500;
+        }
+        
+        .snn-feed-time {
+            font-size: 11px;
+            color: var(--text3);
+            margin-top: 2px;
+        }
+        
+        .snn-funnel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 4px 0;
+        }
+        
+        .snn-funnel-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .snn-funnel-label {
+            font-size: 12px;
+            color: var(--text2);
+            width: 80px;
+            text-align: right;
+        }
+        
+        .snn-funnel-bar-wrap {
+            flex: 1;
+        }
+        
+        .snn-funnel-bar {
+            height: 28px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: white;
+        }
+        
+        .snn-funnel-count {
+            font-size: 12px;
+            color: var(--text3);
+            width: 50px;
+            text-align: right;
+        }
+    </style>
+    
+    <div class="snn-dashboard-shell">
+        <div class="snn-dash-header">
+            <h1 class="snn-dash-title">SNN Education Dashboard</h1>
+            <div class="snn-dash-actions">
+                <a href="<?php echo admin_url('admin.php?page=snn-learn&export_csv=1'); ?>" class="snn-btn snn-btn-ghost">
+                    Export CSV
+                </a>
             </div>
         </div>
         
-        <h2><?php _e('Most Active Courses', 'snn'); ?></h2>
-        <table class="wp-list-table widefat fixed striped">
-            <thead>
-                <tr>
-                    <th><?php _e('Course', 'snn'); ?></th>
-                    <th><?php _e('Students', 'snn'); ?></th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($active_courses as $course): ?>
-                <tr>
-                    <td><?php echo esc_html(get_the_title($course->course_id)); ?></td>
-                    <td><?php echo intval($course->student_count); ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+        <!-- KPI Cards -->
+        <div class="snn-kpi-grid">
+            <div class="snn-kpi-card blue">
+                <div class="snn-kpi-top">
+                    <div class="snn-kpi-icon blue">📚</div>
+                </div>
+                <div class="snn-kpi-value"><?php echo number_format($total_enrollments); ?></div>
+                <div class="snn-kpi-label">Total Enrollments</div>
+                <div class="snn-kpi-sub">
+                    <strong><?php echo number_format($total_enrolled); ?></strong> unique students
+                </div>
+            </div>
+            
+            <div class="snn-kpi-card green">
+                <div class="snn-kpi-top">
+                    <div class="snn-kpi-icon green">✓</div>
+                </div>
+                <div class="snn-kpi-value"><?php echo $completion_rate; ?>%</div>
+                <div class="snn-kpi-label">Completion Rate</div>
+                <div class="snn-kpi-sub">
+                    <strong><?php echo number_format($total_completed_courses); ?></strong> courses finished
+                </div>
+            </div>
+            
+            <div class="snn-kpi-card amber">
+                <div class="snn-kpi-top">
+                    <div class="snn-kpi-icon amber">⚡</div>
+                </div>
+                <div class="snn-kpi-value"><?php echo number_format($active_this_week); ?></div>
+                <div class="snn-kpi-label">Active This Week</div>
+                <div class="snn-kpi-sub">
+                    Last 7 days activity
+                </div>
+            </div>
+            
+            <div class="snn-kpi-card red">
+                <div class="snn-kpi-top">
+                    <div class="snn-kpi-icon red">⚠</div>
+                </div>
+                <div class="snn-kpi-value"><?php echo number_format($gone_cold); ?></div>
+                <div class="snn-kpi-label">Gone Cold</div>
+                <div class="snn-kpi-sub">
+                    No activity <strong>&gt; 14 days</strong>
+                </div>
+            </div>
+        </div>
         
-        <h2><?php _e('Manual Enrollment', 'snn'); ?></h2>
-        <form method="post" style="background: #fff; padding: 20px; margin: 20px 0;">
-            <?php wp_nonce_field('snn_manual_action'); ?>
-            <p>
-                <label><?php _e('User ID:', 'snn'); ?> <input type="number" name="user_id" required></label>
-                <label><?php _e('Post ID:', 'snn'); ?> <input type="number" name="post_id" required></label>
-                <button type="submit" name="snn_manual_enroll" class="button button-primary"><?php _e('Enroll', 'snn'); ?></button>
-            </p>
-        </form>
+        <!-- Mini Stats Row -->
+        <div class="snn-mini-stat-row">
+            <div class="snn-mini-stat">
+                <div class="snn-mini-stat-val"><?php echo $active_courses; ?></div>
+                <div class="snn-mini-stat-lbl">Active Courses</div>
+            </div>
+            <div class="snn-mini-stat">
+                <div class="snn-mini-stat-val"><?php echo $avg_days; ?> days</div>
+                <div class="snn-mini-stat-lbl">Avg. Time to Complete</div>
+            </div>
+            <div class="snn-mini-stat">
+                <div class="snn-mini-stat-val"><?php echo $drop_off_rate; ?>%</div>
+                <div class="snn-mini-stat-lbl">Drop-off Rate</div>
+            </div>
+            <div class="snn-mini-stat">
+                <div class="snn-mini-stat-val"><?php echo $peak_day_formatted; ?></div>
+                <div class="snn-mini-stat-lbl">Peak Enrollment Day</div>
+            </div>
+            <div class="snn-mini-stat">
+                <div class="snn-mini-stat-val"><?php echo $completions_this_month; ?></div>
+                <div class="snn-mini-stat-lbl">Completions This Month</div>
+            </div>
+        </div>
         
-        <h2><?php _e('All Activity', 'snn'); ?></h2>
-        <form method="get" style="margin: 20px 0;">
-            <input type="hidden" name="page" value="snn-learn">
-            <label><?php _e('Course:', 'snn'); ?> <input type="number" name="filter_course" value="<?php echo $filter_course; ?>"></label>
-            <label><?php _e('User:', 'snn'); ?> <input type="number" name="filter_user" value="<?php echo $filter_user; ?>"></label>
-            <label><?php _e('Status:', 'snn'); ?> 
-                <select name="filter_status">
-                    <option value=""><?php _e('All', 'snn'); ?></option>
-                    <option value="started" <?php selected($filter_status, 'started'); ?>><?php _e('Started', 'snn'); ?></option>
-                    <option value="completed" <?php selected($filter_status, 'completed'); ?>><?php _e('Completed', 'snn'); ?></option>
-                </select>
-            </label>
-            <button type="submit" class="button"><?php _e('Filter', 'snn'); ?></button>
-            <a href="?page=snn-learn" class="button"><?php _e('Clear', 'snn'); ?></a>
-            <a href="<?php echo admin_url('admin.php?page=snn-learn&export_csv=1'); ?>" class="button"><?php _e('Export CSV', 'snn'); ?></a>
-        </form>
+        <!-- Course Performance + At-Risk -->
+        <div class="snn-two-col">
+            <div class="snn-card">
+                <div class="snn-card-header">
+                    <div class="snn-card-title">Course Performance</div>
+                </div>
+                <div class="snn-card-body-flush">
+                    <table class="snn-table">
+                        <thead>
+                            <tr>
+                                <th>Course</th>
+                                <th>Enrolled</th>
+                                <th>Completion</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($course_stats as $course): 
+                                $course_title = get_the_title($course->course_id) ?: 'Unknown Course';
+                                $pct = $course->enrolled > 0 ? round(($course->completed / $course->enrolled) * 100) : 0;
+                                $status_class = $pct >= 65 ? 'green' : ($pct >= 40 ? 'amber' : 'red');
+                                $status_text = $pct >= 65 ? 'Healthy' : ($pct >= 40 ? 'Moderate' : 'Low');
+                                $prog_class = $pct >= 65 ? '' : ($pct >= 40 ? ' mid' : ' low');
+                            ?>
+                            <tr>
+                                <td><?php echo esc_html($course_title); ?></td>
+                                <td><?php echo number_format($course->enrolled); ?></td>
+                                <td>
+                                    <div class="snn-prog-wrap">
+                                        <div class="snn-prog-bar">
+                                            <div class="snn-prog-fill<?php echo $prog_class; ?>" style="width: <?php echo $pct; ?>%"></div>
+                                        </div>
+                                        <div class="snn-prog-pct"><?php echo $pct; ?>%</div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="snn-chip <?php echo $status_class; ?>"><?php echo $status_text; ?></span>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="snn-card">
+                <div class="snn-card-header">
+                    <div class="snn-card-title">At-Risk Students</div>
+                    <div class="snn-card-meta">Cold &gt; 14 days</div>
+                </div>
+                <div class="snn-risk-list">
+                    <?php foreach ($at_risk_students as $student): 
+                        $user = get_userdata($student->user_id);
+                        if (!$user) continue;
+                        $name = $user->display_name ?: $user->user_login;
+                        $initials = strtoupper(substr($name, 0, 1) . (strpos($name, ' ') !== false ? substr($name, strpos($name, ' ') + 1, 1) : ''));
+                        $course_title = get_the_title($student->course_id) ?: 'Unknown Course';
+                        $days_inactive = floor((time() - $student->last_activity_at) / 86400);
+                    ?>
+                    <div class="snn-risk-item">
+                        <div class="snn-avatar"><?php echo esc_html($initials); ?></div>
+                        <div class="snn-risk-info">
+                            <div class="snn-avatar-name"><?php echo esc_html($name); ?></div>
+                            <div class="snn-risk-course"><?php echo esc_html($course_title); ?></div>
+                        </div>
+                        <div class="snn-risk-days"><?php echo $days_inactive; ?>d inactive</div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
         
-        <table class="wp-list-table widefat fixed striped">
-            <thead>
-                <tr>
-                    <th><?php _e('User', 'snn'); ?></th>
-                    <th><?php _e('Course', 'snn'); ?></th>
-                    <th><?php _e('Post', 'snn'); ?></th>
-                    <th><?php _e('Status', 'snn'); ?></th>
-                    <th><?php _e('Enrolled', 'snn'); ?></th>
-                    <th><?php _e('Completed', 'snn'); ?></th>
-                    <th><?php _e('Last Activity', 'snn'); ?></th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($all_data as $row): ?>
-                <tr>
-                    <td><?php echo esc_html(get_userdata($row->user_id)->display_name ?? 'Unknown'); ?></td>
-                    <td><?php echo esc_html(get_the_title($row->course_id)); ?></td>
-                    <td><?php echo esc_html(get_the_title($row->post_id)); ?></td>
-                    <td><?php echo $row->completed_at ? '<span style="color: green;">✓ Completed</span>' : '<span style="color: #999;">In Progress</span>'; ?></td>
-                    <td><?php echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $row->enrolled_at)); ?></td>
-                    <td><?php echo $row->completed_at ? esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $row->completed_at)) : '-'; ?></td>
-                    <td><?php echo $row->last_activity_at ? esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $row->last_activity_at)) : '-'; ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+        <!-- Recent Enrollments + Activity Feed -->
+        <div class="snn-two-col" style="grid-template-columns: 1fr 340px;">
+            <div class="snn-card">
+                <div class="snn-card-header">
+                    <div class="snn-card-title">Recent Enrollments</div>
+                </div>
+                <div class="snn-card-body-flush">
+                    <table class="snn-table">
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th>Course</th>
+                                <th>Enrolled</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($recent_enrollments as $enrollment): 
+                                $user = get_userdata($enrollment->user_id);
+                                if (!$user) continue;
+                                $name = $user->display_name ?: $user->user_login;
+                                $initials = strtoupper(substr($name, 0, 1) . (strpos($name, ' ') !== false ? substr($name, strpos($name, ' ') + 1, 1) : ''));
+                                $course_title = get_the_title($enrollment->course_id) ?: 'Unknown Course';
+                                $time_ago = human_time_diff($enrollment->enrolled_at, time()) . ' ago';
+                                $is_completed = !empty($enrollment->completed_at);
+                            ?>
+                            <tr>
+                                <td>
+                                    <div class="snn-avatar-wrap">
+                                        <div class="snn-avatar"><?php echo esc_html($initials); ?></div>
+                                        <div>
+                                            <div class="snn-avatar-name"><?php echo esc_html($name); ?></div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><?php echo esc_html($course_title); ?></td>
+                                <td style="color:var(--text3);font-size:12.5px"><?php echo esc_html($time_ago); ?></td>
+                                <td>
+                                    <?php if ($is_completed): ?>
+                                        <span class="snn-chip green">Completed</span>
+                                    <?php else: ?>
+                                        <span class="snn-chip blue">In Progress</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="snn-card">
+                <div class="snn-card-header">
+                    <div class="snn-card-title">Activity Feed</div>
+                    <div class="snn-card-meta">Recent</div>
+                </div>
+                <div class="snn-feed">
+                    <?php foreach ($recent_activity as $activity): 
+                        $user = get_userdata($activity->user_id);
+                        if (!$user) continue;
+                        $name = $user->display_name ?: $user->user_login;
+                        $course_title = get_the_title($activity->course_id) ?: 'Unknown Course';
+                        
+                        if (!empty($activity->completed_at)) {
+                            $dot_class = 'green';
+                            $text = '<strong>' . esc_html($name) . '</strong> completed <strong>' . esc_html($course_title) . '</strong>';
+                            $time_ago = human_time_diff($activity->completed_at, time()) . ' ago';
+                        } else {
+                            $dot_class = 'blue';
+                            $text = '<strong>' . esc_html($name) . '</strong> enrolled in <strong>' . esc_html($course_title) . '</strong>';
+                            $time_ago = human_time_diff($activity->enrolled_at, time()) . ' ago';
+                        }
+                    ?>
+                    <div class="snn-feed-item">
+                        <div class="snn-feed-dot <?php echo $dot_class; ?>"></div>
+                        <div>
+                            <div class="snn-feed-text"><?php echo $text; ?></div>
+                            <div class="snn-feed-time"><?php echo esc_html($time_ago); ?></div>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+        
     </div>
     <?php
 }
