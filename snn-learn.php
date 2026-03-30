@@ -121,7 +121,7 @@ function snn_learn_dashboard_page() {
     $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t" );
     $recent_enrollments = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= UNIX_TIMESTAMP(NOW() - INTERVAL 30 DAY)" );
     $completion_rate    = (float) $wpdb->get_var( "SELECT (COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) / NULLIF(COUNT(*),0)) * 100 FROM $t" );
-    $weekly_active      = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE last_activity_at >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)" );
+    $weekly_active      = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)" );
     $gone_cold          = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE last_activity_at < UNIX_TIMESTAMP(NOW() - INTERVAL 14 DAY) AND completed_at IS NULL" );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
     $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE completed_at IS NOT NULL" );
@@ -151,7 +151,7 @@ function snn_learn_dashboard_page() {
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Enrollments</p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Lesson Enrollments</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $total_enrollments ) ?></p>
             </div>
 
@@ -166,7 +166,7 @@ function snn_learn_dashboard_page() {
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Weekly Active</p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Weekly Active Users</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $weekly_active ) ?></p>
             </div>
 
