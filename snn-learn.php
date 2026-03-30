@@ -20,25 +20,34 @@ function snn_learn_create_table() {
     $table   = $wpdb->prefix . 'snn_learn_enrollments';
     $charset = $wpdb->get_charset_collate();
 
+    // dbDelta rules: lowercase types, exactly one space between column name and type, two spaces before (id) in PRIMARY KEY
     $sql = "CREATE TABLE $table (
-        id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        user_id          BIGINT UNSIGNED NOT NULL,
-        post_id          BIGINT UNSIGNED NOT NULL,
-        course_id        BIGINT UNSIGNED NOT NULL,
-        enrolled_at      INT UNSIGNED    NOT NULL,
-        completed_at     INT UNSIGNED    DEFAULT NULL,
-        last_activity_at INT UNSIGNED    DEFAULT NULL,
+        id bigint unsigned NOT NULL AUTO_INCREMENT,
+        user_id bigint unsigned NOT NULL,
+        post_id bigint unsigned NOT NULL,
+        course_id bigint unsigned NOT NULL,
+        enrolled_at int unsigned NOT NULL,
+        completed_at int unsigned DEFAULT NULL,
+        last_activity_at int unsigned DEFAULT NULL,
         PRIMARY KEY  (id),
-        UNIQUE KEY uq_user_post  (user_id, post_id),
-        KEY idx_course_id        (course_id),
-        KEY idx_user_id          (user_id),
-        KEY idx_completed_at     (completed_at)
+        UNIQUE KEY uq_user_post (user_id, post_id),
+        KEY idx_course_id (course_id),
+        KEY idx_user_id (user_id),
+        KEY idx_completed_at (completed_at)
     ) $charset;";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta( $sql );
 }
 register_activation_hook( __FILE__, 'snn_learn_create_table' );
+
+// Auto-create / upgrade table on every plugin load — safe to run repeatedly (dbDelta is idempotent)
+add_action( 'plugins_loaded', function () {
+    if ( get_option( 'snn_learn_db_version' ) !== '2.0' ) {
+        snn_learn_create_table();
+        update_option( 'snn_learn_db_version', '2.0' );
+    }
+} );
 
 // ============================================================
 // 2. SETTINGS HELPERS
@@ -674,6 +683,26 @@ add_action( 'rest_api_init', function () {
         ],
     ] );
 
+    // GET /wp-json/snn-learn/v1/lesson-status?post_id=INT
+    register_rest_route( 'snn-learn/v1', '/lesson-status', [
+        'methods'             => 'GET',
+        'callback'            => 'snn_learn_rest_lesson_status',
+        'permission_callback' => function () { return is_user_logged_in(); },
+        'args'                => [
+            'post_id' => [ 'required' => true, 'sanitize_callback' => 'absint' ],
+        ],
+    ] );
+
+    // GET /wp-json/snn-learn/v1/completed-lessons?course_id=INT
+    register_rest_route( 'snn-learn/v1', '/completed-lessons', [
+        'methods'             => 'GET',
+        'callback'            => 'snn_learn_rest_completed_lessons',
+        'permission_callback' => function () { return is_user_logged_in(); },
+        'args'                => [
+            'course_id' => [ 'required' => true, 'sanitize_callback' => 'absint' ],
+        ],
+    ] );
+
 } );
 
 function snn_learn_rest_complete( WP_REST_Request $request ) {
@@ -708,6 +737,41 @@ function snn_learn_rest_progress( WP_REST_Request $request ) {
     return rest_ensure_response( [ 'progress' => snn_learn_calc_progress( $user_id, $course_id ) ] );
 }
 
+function snn_learn_rest_lesson_status( WP_REST_Request $request ) {
+    global $wpdb;
+    $post_id   = (int) $request->get_param( 'post_id' );
+    $user_id   = get_current_user_id();
+    $t         = $wpdb->prefix . 'snn_learn_enrollments';
+    $completed = (bool) $wpdb->get_var( $wpdb->prepare(
+        "SELECT completed_at FROM $t WHERE user_id=%d AND post_id=%d AND completed_at IS NOT NULL",
+        $user_id, $post_id
+    ) );
+    return rest_ensure_response( [ 'completed' => $completed ] );
+}
+
+function snn_learn_rest_completed_lessons( WP_REST_Request $request ) {
+    global $wpdb;
+    $course_id     = (int) $request->get_param( 'course_id' );
+    $user_id       = get_current_user_id();
+    $t             = $wpdb->prefix . 'snn_learn_enrollments';
+    $rows          = $wpdb->get_results( $wpdb->prepare(
+        "SELECT post_id FROM $t WHERE user_id=%d AND course_id=%d AND completed_at IS NOT NULL",
+        $user_id, $course_id
+    ) );
+    $completed_ids = array_map( 'intval', array_column( $rows, 'post_id' ) );
+    return rest_ensure_response( [ 'completed' => $completed_ids ] );
+}
+
+// Force no-cache headers on all SNN Learn REST responses — prevents Cloudflare / proxy caching
+add_filter( 'rest_post_dispatch', function ( $response, $server, $request ) {
+    if ( strpos( $request->get_route(), '/snn-learn/' ) !== false ) {
+        $response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
+        $response->header( 'Pragma', 'no-cache' );
+        $response->header( 'Expires', '0' );
+    }
+    return $response;
+}, 10, 3 );
+
 // ============================================================
 // 10. SHORTCODES
 // ============================================================
@@ -735,14 +799,7 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
     $nonce      = esc_js( wp_create_nonce( 'wp_rest' ) );
     $uid        = 'snnvp_' . $post_id . '_' . substr( md5( uniqid( '', true ) ), 0, 6 );
 
-    // Check already completed
-    global $wpdb;
-    $t         = $wpdb->prefix . 'snn_learn_enrollments';
-    $user_id   = get_current_user_id();
-    $pre_done  = (bool) $wpdb->get_var( $wpdb->prepare(
-        "SELECT completed_at FROM $t WHERE user_id=%d AND post_id=%d AND completed_at IS NOT NULL",
-        $user_id, $post_id
-    ) );
+    $status_url = esc_js( rest_url( 'snn-learn/v1/lesson-status' ) );
 
     ob_start();
     ?>
@@ -769,8 +826,8 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
 
         </div>
 
-        <!-- Completed badge -->
-        <div id="<?= $uid ?>-badge" class="snn-video-completed-badge" style="display:<?= $pre_done ? 'block' : 'none' ?>;position:absolute;top:10px;right:10px;background:<?= $c_primary ?>;color:<?= $c_text ?>;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:bold">&#10003; Completed</div>
+        <!-- Completed badge (always hidden in HTML; JS checks fresh status to defeat page cache) -->
+        <div id="<?= $uid ?>-badge" class="snn-video-completed-badge" style="display:none;position:absolute;top:10px;right:10px;background:<?= $c_primary ?>;color:<?= $c_text ?>;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:bold">&#10003; Completed</div>
 
     </div>
 
@@ -791,11 +848,20 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         var COMP_SEC     = <?= (int) $comp_sec ?>;
         var ON_END       = <?= $on_end ? 'true' : 'false' ?>;
         var REST_URL     = '<?= $rest_url ?>';
+        var STATUS_URL   = '<?= $status_url ?>';
         var NONCE        = '<?= $nonce ?>';
-        var completed    = <?= $pre_done ? 'true' : 'false' ?>;
+        var completed    = false; // always start false; JS fetches real state below
         var watchedSec   = 0;
         var lastTime     = 0;
         var hideTimer    = null;
+
+        // Fetch completion status fresh — bypasses any cached HTML page
+        fetch(STATUS_URL + '?post_id=' + POST_ID + '&_t=' + Date.now(), {
+            headers: { 'X-WP-Nonce': NONCE },
+            cache: 'no-store'
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.completed) { completed = true; badge.style.display = 'block'; }
+        });
 
         // Set src after DOM ready to allow poster placeholder
         video.src = '<?= esc_js( $video_url ) ?>';
@@ -887,9 +953,10 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
             if (completed) return;
             completed = true;
             badge.style.display = 'block';
-            fetch(REST_URL, {
+            fetch(REST_URL + '?_t=' + Date.now(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': NONCE },
+                cache: 'no-store',
                 body: JSON.stringify({ post_id: POST_ID, complete: true })
             })
             .then(function (r) { return r.json(); })
@@ -931,8 +998,10 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
     if ( ! $course_id ) return '';
 
     $pt         = snn_learn_get( 'course_post_type' );
-    $user_id    = get_current_user_id();
     $current_id = get_the_ID();
+    $nav_uid    = 'snn_nav_' . $course_id;
+    $nav_nonce  = esc_attr( wp_create_nonce( 'wp_rest' ) );
+    $status_url = esc_attr( rest_url( 'snn-learn/v1/completed-lessons' ) );
 
     // Chapters = direct children of the course
     $chapters = get_posts( [
@@ -944,20 +1013,13 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
         'post_status'    => 'publish',
     ] );
 
-    // Pre-fetch completed lesson IDs for current user
-    $completed_ids = [];
-    if ( $user_id ) {
-        global $wpdb;
-        $t    = $wpdb->prefix . 'snn_learn_enrollments';
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT post_id FROM $t WHERE user_id=%d AND course_id=%d AND completed_at IS NOT NULL",
-            $user_id, $course_id
-        ) );
-        $completed_ids = array_map( 'intval', array_column( $rows, 'post_id' ) );
-    }
+    // Pre-fetch removed — completed state is fetched fresh via JS to defeat HTML page cache
 
     ob_start();
-    echo '<nav class="snn-course-nav">';
+    echo '<nav id="' . esc_attr( $nav_uid ) . '" class="snn-course-nav"'
+       . ' data-course-id="' . (int) $course_id . '"'
+       . ' data-nonce="' . $nav_nonce . '"'
+       . ' data-status-url="' . $status_url . '">';
 
     foreach ( $chapters as $ch ) {
         echo '<div class="snn-chapter">';
@@ -976,15 +1038,13 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
         if ( $lessons ) {
             echo '<ul class="snn-lessons-list">';
             foreach ( $lessons as $l ) {
-                $is_current   = ( $l->ID === $current_id );
-                $is_completed = in_array( $l->ID, $completed_ids, true );
-                $cls          = 'snn-lesson-item';
-                if ( $is_current )   $cls .= ' snn-lesson-current';
-                if ( $is_completed ) $cls .= ' snn-lesson-completed';
+                $is_current = ( $l->ID === $current_id );
+                $cls        = 'snn-lesson-item';
+                if ( $is_current ) $cls .= ' snn-lesson-current';
 
-                echo '<li class="' . esc_attr( $cls ) . '">';
+                echo '<li class="' . esc_attr( $cls ) . '" data-lesson-id="' . (int) $l->ID . '">';
                 echo '<a class="snn-lesson-link" href="' . esc_url( get_permalink( $l->ID ) ) . '">';
-                if ( $is_completed ) echo '<span class="snn-lesson-check" aria-label="Completed">&#10003;</span> ';
+                echo '<span class="snn-lesson-check" aria-hidden="true" style="display:none">&#10003; </span>';
                 echo esc_html( $l->post_title );
                 echo '</a>';
                 echo '</li>';
@@ -996,6 +1056,33 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
     }
 
     echo '</nav>';
+
+    if ( is_user_logged_in() ) {
+        ?>
+        <script>
+        (function() {
+            var nav = document.getElementById('<?= esc_js( $nav_uid ) ?>');
+            if (!nav) return;
+            fetch(nav.dataset.statusUrl + '?course_id=' + nav.dataset.courseId + '&_t=' + Date.now(), {
+                headers: { 'X-WP-Nonce': nav.dataset.nonce },
+                cache: 'no-store'
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.completed || !d.completed.length) return;
+                d.completed.forEach(function(lid) {
+                    var li = nav.querySelector('[data-lesson-id="' + lid + '"]');
+                    if (!li) return;
+                    li.classList.add('snn-lesson-completed');
+                    var chk = li.querySelector('.snn-lesson-check');
+                    if (chk) chk.style.display = '';
+                });
+            });
+        })();
+        </script>
+        <?php
+    }
+
     return ob_get_clean();
 } );
 
@@ -1010,24 +1097,16 @@ add_shortcode( 'snn_learn_mark_completed', function ( $atts ) {
 
     if ( ! is_user_logged_in() ) return '';
 
-    $post_id  = get_the_ID();
-    $user_id  = get_current_user_id();
-    $rest_url = esc_attr( rest_url( 'snn-learn/v1/complete' ) );
-    $nonce    = esc_attr( wp_create_nonce( 'wp_rest' ) );
-    $uid      = 'snn_mc_' . $post_id;
+    $post_id    = get_the_ID();
+    $rest_url   = esc_attr( rest_url( 'snn-learn/v1/complete' ) );
+    $status_url = esc_attr( rest_url( 'snn-learn/v1/lesson-status' ) );
+    $nonce      = esc_attr( wp_create_nonce( 'wp_rest' ) );
+    $uid        = 'snn_mc_' . $post_id;
 
-    // Check if already completed
-    global $wpdb;
-    $t       = $wpdb->prefix . 'snn_learn_enrollments';
-    $already = $wpdb->get_var( $wpdb->prepare(
-        "SELECT completed_at FROM $t WHERE user_id=%d AND post_id=%d",
-        $user_id, $post_id
-    ) );
-    $is_done = ! empty( $already );
-
-    $label     = $is_done ? $atts['completed_label'] : $atts['label'];
-    $disabled  = $is_done ? 'disabled' : '';
-    $done_cls  = $is_done ? ' snn-mark-completed-done' : '';
+    // Always render as not-done — JS fetches real state to defeat HTML page cache
+    $label    = $atts['label'];
+    $disabled = '';
+    $done_cls = '';
 
     ob_start();
     ?>
@@ -1036,6 +1115,7 @@ add_shortcode( 'snn_learn_mark_completed', function ( $atts ) {
         class="snn-mark-completed-btn<?= $done_cls ?>"
         data-post-id="<?= (int) $post_id ?>"
         data-rest-url="<?= $rest_url ?>"
+        data-status-url="<?= $status_url ?>"
         data-nonce="<?= $nonce ?>"
         data-done-label="<?= esc_attr( $atts['completed_label'] ) ?>"
         onclick="snnMarkCompleted(this)"
@@ -1047,9 +1127,10 @@ add_shortcode( 'snn_learn_mark_completed', function ( $atts ) {
         window.snnMarkCompleted = function (btn) {
             if (btn.disabled) return;
             btn.disabled = true;
-            fetch(btn.dataset.restUrl, {
+            fetch(btn.dataset.restUrl + '?_t=' + Date.now(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': btn.dataset.nonce },
+                cache: 'no-store',
                 body: JSON.stringify({ post_id: parseInt(btn.dataset.postId), complete: true })
             })
             .then(function (r) { return r.json(); })
@@ -1065,6 +1146,21 @@ add_shortcode( 'snn_learn_mark_completed', function ( $atts ) {
             .catch(function () { btn.disabled = false; });
         };
     }
+    // Check completion status fresh on load — bypasses cached HTML
+    (function() {
+        var btn = document.getElementById('<?= esc_js( $uid ) ?>');
+        if (!btn) return;
+        fetch(btn.dataset.statusUrl + '?post_id=' + btn.dataset.postId + '&_t=' + Date.now(), {
+            headers: { 'X-WP-Nonce': btn.dataset.nonce },
+            cache: 'no-store'
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.completed) {
+                btn.innerHTML = btn.dataset.doneLabel;
+                btn.classList.add('snn-mark-completed-done');
+                btn.disabled = true;
+            }
+        });
+    })();
     </script>
     <?php
     return ob_get_clean();
