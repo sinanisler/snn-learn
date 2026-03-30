@@ -82,7 +82,7 @@ add_action( 'admin_menu', function () {
         'snn-learn',
         'snn_learn_dashboard_page',
         'dashicons-welcome-learn-more',
-        26
+        10
     );
     add_submenu_page( 'snn-learn', 'Dashboard',  'Dashboard',  'manage_options', 'snn-learn',            'snn_learn_dashboard_page'  );
     add_submenu_page( 'snn-learn', 'Settings',   'Settings',   'manage_options', 'snn-learn-settings',   'snn_learn_settings_page'   );
@@ -150,22 +150,22 @@ function snn_learn_dashboard_page() {
         <!-- Row 1: Primary KPIs -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 border-l-4 border-blue-500">
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Enrollments</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $total_enrollments ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 border-l-4 border-green-500">
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Last 30 Days</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $recent_enrollments ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 border-l-4 border-purple-500">
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Completion Rate</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $completion_rate, 1 ) ?>%</p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 border-l-4 border-yellow-500">
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Weekly Active</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $weekly_active ) ?></p>
             </div>
@@ -175,23 +175,23 @@ function snn_learn_dashboard_page() {
         <!-- Row 2: Mini Stats -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 border-l-4 border-red-500">
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Gone Cold</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $gone_cold ) ?></p>
                 <p class="snn-kpi-desc text-xs text-gray-400 mt-1">14+ days inactive</p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 border-l-4 border-indigo-500">
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Active Courses</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $active_courses ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 border-l-4 border-teal-500">
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Days to Complete</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= $avg_days ? number_format( $avg_days, 1 ) : '&mdash;' ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 border-l-4 border-orange-500">
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Peak Enrollment Day</p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800 mt-1"><?= $peak_day ? esc_html( $peak_day->date ) : '&mdash;' ?></p>
                 <?php if ( $peak_day ): ?>
@@ -998,10 +998,8 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
     if ( ! $course_id ) return '';
 
     $pt         = snn_learn_get( 'course_post_type' );
+    $user_id    = get_current_user_id();
     $current_id = get_the_ID();
-    $nav_uid    = 'snn_nav_' . $course_id;
-    $nav_nonce  = esc_attr( wp_create_nonce( 'wp_rest' ) );
-    $status_url = esc_attr( rest_url( 'snn-learn/v1/completed-lessons' ) );
 
     // Chapters = direct children of the course
     $chapters = get_posts( [
@@ -1013,13 +1011,20 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
         'post_status'    => 'publish',
     ] );
 
-    // Pre-fetch removed — completed state is fetched fresh via JS to defeat HTML page cache
+    // Pre-fetch completed lesson IDs for current user via PHP
+    $completed_ids = [];
+    if ( $user_id ) {
+        global $wpdb;
+        $t    = $wpdb->prefix . 'snn_learn_enrollments';
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT post_id FROM $t WHERE user_id=%d AND course_id=%d AND completed_at IS NOT NULL",
+            $user_id, $course_id
+        ) );
+        $completed_ids = array_map( 'intval', array_column( $rows, 'post_id' ) );
+    }
 
     ob_start();
-    echo '<nav id="' . esc_attr( $nav_uid ) . '" class="snn-course-nav"'
-       . ' data-course-id="' . (int) $course_id . '"'
-       . ' data-nonce="' . $nav_nonce . '"'
-       . ' data-status-url="' . $status_url . '">';
+    echo '<nav class="snn-course-nav">';
 
     foreach ( $chapters as $ch ) {
         echo '<div class="snn-chapter">';
@@ -1038,13 +1043,15 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
         if ( $lessons ) {
             echo '<ul class="snn-lessons-list">';
             foreach ( $lessons as $l ) {
-                $is_current = ( $l->ID === $current_id );
-                $cls        = 'snn-lesson-item';
-                if ( $is_current ) $cls .= ' snn-lesson-current';
+                $is_current   = ( $l->ID === $current_id );
+                $is_completed = in_array( $l->ID, $completed_ids, true );
+                $cls          = 'snn-lesson-item';
+                if ( $is_current )   $cls .= ' snn-lesson-current';
+                if ( $is_completed ) $cls .= ' snn-lesson-completed';
 
-                echo '<li class="' . esc_attr( $cls ) . '" data-lesson-id="' . (int) $l->ID . '">';
+                echo '<li class="' . esc_attr( $cls ) . '">';
                 echo '<a class="snn-lesson-link" href="' . esc_url( get_permalink( $l->ID ) ) . '">';
-                echo '<span class="snn-lesson-check" aria-hidden="true" style="display:none">&#10003; </span>';
+                if ( $is_completed ) echo '<span class="snn-lesson-check" aria-label="Completed">&#10003; </span>';
                 echo esc_html( $l->post_title );
                 echo '</a>';
                 echo '</li>';
@@ -1056,33 +1063,6 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
     }
 
     echo '</nav>';
-
-    if ( is_user_logged_in() ) {
-        ?>
-        <script>
-        (function() {
-            var nav = document.getElementById('<?= esc_js( $nav_uid ) ?>');
-            if (!nav) return;
-            fetch(nav.dataset.statusUrl + '?course_id=' + nav.dataset.courseId + '&_t=' + Date.now(), {
-                headers: { 'X-WP-Nonce': nav.dataset.nonce },
-                cache: 'no-store'
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                if (!d.completed || !d.completed.length) return;
-                d.completed.forEach(function(lid) {
-                    var li = nav.querySelector('[data-lesson-id="' + lid + '"]');
-                    if (!li) return;
-                    li.classList.add('snn-lesson-completed');
-                    var chk = li.querySelector('.snn-lesson-check');
-                    if (chk) chk.style.display = '';
-                });
-            });
-        })();
-        </script>
-        <?php
-    }
-
     return ob_get_clean();
 } );
 
