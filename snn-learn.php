@@ -82,7 +82,7 @@ add_action( 'admin_menu', function () {
         'snn-learn',
         'snn_learn_dashboard_page',
         'dashicons-welcome-learn-more',
-        10
+        5
     );
     add_submenu_page( 'snn-learn', 'Dashboard',  'Dashboard',  'manage_options', 'snn-learn',            'snn_learn_dashboard_page'  );
     add_submenu_page( 'snn-learn', 'Settings',   'Settings',   'manage_options', 'snn-learn-settings',   'snn_learn_settings_page'   );
