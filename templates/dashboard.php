@@ -190,7 +190,8 @@ $at_risk = $wpdb->get_results($wpdb->prepare("
   .snn-learn-card-meta { font-size: 12px; color: var(--text3); }
   .snn-learn-card-actions { display: flex; align-items: center; gap: 8px; }
   .snn-learn-card-body { padding: 20px 22px; }
-  .snn-learn-card-body-flush { padding: 0; }
+  .snn-learn-card-body-flush { padding: 10px; }
+  .snn-learn-card-body-flush table{ width:100%}
 
   /* ── TABLE ── */
   .snn-learn-table-wrap table { width: 100%; border-collapse: collapse; }
