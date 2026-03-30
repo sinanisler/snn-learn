@@ -2,7 +2,7 @@
 /**   
  * Plugin Name: SNN Learn
  * Description: Complete learning platform with video tracking, certificates, strikes, and course management
- * Version: 1.3
+ * Version: 1.4
  * Author: sinanisler
  * Author URI: https://sinanisler.com
  * Text Domain: snn
