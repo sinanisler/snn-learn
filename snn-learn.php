@@ -127,8 +127,9 @@ function snn_learn_dashboard_page() {
     $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE completed_at IS NOT NULL" );
     $peak_day           = $wpdb->get_row( "SELECT FROM_UNIXTIME(enrolled_at, '%Y-%m-%d') AS date, COUNT(*) AS cnt FROM $t GROUP BY date ORDER BY cnt DESC LIMIT 1" );
 
-    // ---- Trend (last 30 days) ----
-    $trend_rows   = $wpdb->get_results( "SELECT FROM_UNIXTIME(enrolled_at, '%Y-%m-%d') AS day, COUNT(*) AS cnt FROM $t GROUP BY day ORDER BY day DESC LIMIT 30" );
+    // ---- Course Enrollment Trend (last 30 days) ----
+    // Count the first enrollment date per unique (user_id, course_id) pair — i.e. when each user first joined a course.
+    $trend_rows   = $wpdb->get_results( "SELECT day, COUNT(*) AS cnt FROM (SELECT FROM_UNIXTIME(MIN(enrolled_at), '%Y-%m-%d') AS day FROM $t GROUP BY user_id, course_id) sub WHERE day >= DATE(NOW() - INTERVAL 30 DAY) GROUP BY day ORDER BY day DESC LIMIT 30" );
     $trend_rows   = array_reverse( $trend_rows );
     $trend_labels = array_column( $trend_rows, 'day' );
     $trend_data   = array_map( 'intval', array_column( $trend_rows, 'cnt' ) );
@@ -205,7 +206,7 @@ function snn_learn_dashboard_page() {
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
 
             <div class="snn-chart-card bg-white rounded-xl shadow-sm p-5">
-                <h2 class="snn-chart-title text-sm font-semibold text-gray-600 mb-4">Enrollment Trend &mdash; Last 30 Days</h2>
+                <h2 class="snn-chart-title text-sm font-semibold text-gray-600 mb-4">Course Enrollment Trend &mdash; Last 30 Days</h2>
                 <canvas id="snn-trend-chart" height="140"></canvas>
             </div>
 
