@@ -118,19 +118,38 @@ function snn_learn_dashboard_page() {
     global $wpdb;
     $t = $wpdb->prefix . 'snn_learn_enrollments';
 
+    // Pre-calculate timestamps in PHP so MySQL receives plain integers.
+    // Comparing two integers is the fastest operation a DB can do and keeps
+    // queries sargable — MySQL can use the idx_enrolled_at / idx_last_activity_at
+    // indexes without wrapping the column in a function.
+    $ts_30_days_ago = time() - ( 30 * DAY_IN_SECONDS );
+    $ts_14_days_ago = time() - ( 14 * DAY_IN_SECONDS );
+    $ts_7_days_ago  = time() - (  7 * DAY_IN_SECONDS );
+
     // ---- KPI Queries ----
     $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t" );
-    $recent_enrollments = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= UNIX_TIMESTAMP(NOW() - INTERVAL 30 DAY)" );
+    $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
     $completion_rate    = (float) $wpdb->get_var( "SELECT (COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) / NULLIF(COUNT(*),0)) * 100 FROM $t" );
-    $weekly_active      = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)" );
-    $gone_cold          = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE last_activity_at < UNIX_TIMESTAMP(NOW() - INTERVAL 14 DAY) AND completed_at IS NULL" );
+    $weekly_active      = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= %d", $ts_7_days_ago ) );
+    $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
     $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE completed_at IS NOT NULL" );
     $peak_day           = $wpdb->get_row( "SELECT FROM_UNIXTIME(enrolled_at, '%Y-%m-%d') AS date, COUNT(*) AS cnt FROM $t GROUP BY date ORDER BY cnt DESC LIMIT 1" );
 
     // ---- Course Enrollment Trend (last 30 days) ----
-    // Count the first enrollment date per unique (user_id, course_id) pair — i.e. when each user first joined a course.
-    $trend_rows   = $wpdb->get_results( "SELECT day, COUNT(*) AS cnt FROM (SELECT FROM_UNIXTIME(MIN(enrolled_at), '%Y-%m-%d') AS day FROM $t GROUP BY user_id, course_id) sub WHERE day >= DATE(NOW() - INTERVAL 30 DAY) GROUP BY day ORDER BY day DESC LIMIT 30" );
+    // Uses the master course-enrollment row (post_id = course_id) that snn_learn_record_lesson()
+    // inserts when a user first starts a course. This eliminates the expensive subquery +
+    // temporary table that MIN(enrolled_at) GROUP BY previously required.
+    $trend_rows   = $wpdb->get_results( $wpdb->prepare(
+        "SELECT FROM_UNIXTIME(enrolled_at, '%%Y-%%m-%%d') AS day, COUNT(*) AS cnt
+         FROM $t
+         WHERE post_id = course_id
+           AND enrolled_at >= %d
+         GROUP BY day
+         ORDER BY day DESC
+         LIMIT 30",
+        $ts_30_days_ago
+    ) );
     $trend_rows   = array_reverse( $trend_rows );
     $trend_labels = array_column( $trend_rows, 'day' );
     $trend_data   = array_map( 'intval', array_column( $trend_rows, 'cnt' ) );
@@ -139,7 +158,10 @@ function snn_learn_dashboard_page() {
     $courses_perf = $wpdb->get_results( "SELECT course_id, COUNT(*) AS enrolled, SUM(completed_at IS NOT NULL) AS completed FROM $t GROUP BY course_id ORDER BY enrolled DESC LIMIT 50" );
 
     // ---- At-risk students ----
-    $at_risk = $wpdb->get_results( "SELECT user_id, course_id, last_activity_at FROM $t WHERE last_activity_at < UNIX_TIMESTAMP(NOW() - INTERVAL 14 DAY) AND completed_at IS NULL ORDER BY last_activity_at ASC LIMIT 20" );
+    $at_risk = $wpdb->get_results( $wpdb->prepare(
+        "SELECT user_id, course_id, last_activity_at FROM $t WHERE last_activity_at < %d AND completed_at IS NULL ORDER BY last_activity_at ASC LIMIT 20",
+        $ts_14_days_ago
+    ) );
 
     // ---- Recent activity feed ----
     $recent_activity = $wpdb->get_results( "SELECT user_id, course_id, enrolled_at, completed_at FROM $t ORDER BY enrolled_at DESC LIMIT 20" );
