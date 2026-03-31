@@ -247,12 +247,19 @@ function snn_learn_dashboard_page() {
                         </thead>
                         <tbody>
                         <?php foreach ( $courses_perf as $c ) :
-                            $rate  = $c->enrolled ? round( $c->completed / $c->enrolled * 100 ) : 0;
-                            $title = get_the_title( $c->course_id );
-                            $badge = $rate >= 70 ? 'bg-green-100 text-green-800' : ( $rate >= 40 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800' );
+                            $rate       = $c->enrolled ? round( $c->completed / $c->enrolled * 100 ) : 0;
+                            $title      = get_the_title( $c->course_id );
+                            $badge      = $rate >= 70 ? 'bg-green-100 text-green-800' : ( $rate >= 40 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800' );
+                            $course_url = get_permalink( $c->course_id );
                         ?>
                         <tr class="border-b border-gray-100 hover:bg-gray-50">
-                            <td class="py-2 pr-4 text-blue-600 font-medium"><?= $title ? esc_html( $title ) : '#' . $c->course_id ?></td>
+                            <td class="py-2 pr-4 text-blue-600 font-medium">
+                                <?php if ( $title && $course_url ) : ?>
+                                <a href="<?= esc_url( $course_url ) ?>" target="_blank" class="hover:underline"><?= esc_html( $title ) ?></a>
+                                <?php else : ?>
+                                <?= $title ? esc_html( $title ) : '#' . $c->course_id ?>
+                                <?php endif; ?>
+                            </td>
                             <td class="py-2 pr-4"><?= (int) $c->enrolled ?></td>
                             <td class="py-2 pr-4"><?= (int) $c->completed ?></td>
                             <td class="py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?= $badge ?>"><?= $rate ?>%</span></td>
