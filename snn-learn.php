@@ -33,7 +33,8 @@ function snn_learn_create_table() {
         UNIQUE KEY uq_user_post (user_id, post_id),
         KEY idx_course_id (course_id),
         KEY idx_user_id (user_id),
-        KEY idx_completed_at (completed_at)
+        KEY idx_completed_at (completed_at),
+        KEY idx_enrolled_at (enrolled_at)
     ) $charset;";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -43,9 +44,9 @@ register_activation_hook( __FILE__, 'snn_learn_create_table' );
 
 // Auto-create / upgrade table on every plugin load — safe to run repeatedly (dbDelta is idempotent)
 add_action( 'plugins_loaded', function () {
-    if ( get_option( 'snn_learn_db_version' ) !== '2.0' ) {
+    if ( get_option( 'snn_learn_db_version' ) !== '2.1' ) {
         snn_learn_create_table();
-        update_option( 'snn_learn_db_version', '2.0' );
+        update_option( 'snn_learn_db_version', '2.1' );
     }
 } );
 
@@ -348,7 +349,14 @@ function snn_learn_dashboard_page() {
 function snn_learn_settings_page() {
     if ( ! current_user_can( 'manage_options' ) ) return;
 
-    if ( isset( $_POST['snn_learn_nonce'] ) && wp_verify_nonce( $_POST['snn_learn_nonce'], 'snn_learn_settings_save' ) ) {
+    // Handle: Reset all enrollment data
+    if ( isset( $_POST['snn_learn_reset_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['snn_learn_reset_nonce'] ) ), 'snn_learn_reset_data' ) ) {
+        global $wpdb;
+        $wpdb->query( "TRUNCATE TABLE {$wpdb->prefix}snn_learn_enrollments" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        echo '<div class="notice notice-warning is-dismissible"><p><strong>All enrollment data has been permanently deleted.</strong></p></div>';
+    }
+
+    if ( isset( $_POST['snn_learn_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['snn_learn_nonce'] ) ), 'snn_learn_settings_save' ) ) {
         $text_fields = [ 'course_post_type', 'video_field', 'video_color_primary', 'video_color_bg', 'video_color_text', 'video_complete_seconds' ];
         foreach ( $text_fields as $f ) {
             $val = isset( $_POST[ 'snn_learn_' . $f ] ) ? sanitize_text_field( wp_unslash( $_POST[ 'snn_learn_' . $f ] ) ) : '';
@@ -421,6 +429,31 @@ function snn_learn_settings_page() {
             </table>
             <?php submit_button( 'Save Settings' ); ?>
         </form>
+
+        <!-- Danger Zone -->
+        <hr style="margin:40px 0 24px;border-color:#fca5a5">
+        <h2 style="color:#dc2626;font-size:16px;font-weight:700;margin-bottom:6px">&#9888; Danger Zone</h2>
+        <p style="color:#6b7280;font-size:13px;margin-bottom:20px">These actions are <strong>irreversible</strong>. Proceed with caution.</p>
+
+        <!-- Admin: reset all data -->
+        <div style="background:#fff8f8;border:1px solid #fca5a5;border-radius:8px;padding:20px 24px;max-width:620px;margin-bottom:16px">
+            <h3 style="margin:0 0 6px;font-size:14px;color:#991b1b">Reset All Enrollment Data</h3>
+            <p style="margin:0 0 14px;font-size:13px;color:#6b7280">Permanently deletes <strong>every row</strong> from the <code>snn_learn_enrollments</code> table. All user progress, completions, and enrollment history will be gone.</p>
+            <form method="post" action="" onsubmit="return confirm('WARNING: This will permanently delete ALL enrollment data for ALL users. This cannot be undone. Are you absolutely sure?');">
+                <?php wp_nonce_field( 'snn_learn_reset_data', 'snn_learn_reset_nonce' ); ?>
+                <button type="submit" class="button" style="background:#dc2626;border-color:#b91c1c;color:#fff;font-weight:600">&#128465; Delete All Enrollment Data</button>
+            </form>
+        </div>
+
+        <!-- User data deletion info -->
+        <div style="background:#fff8f8;border:1px solid #fca5a5;border-radius:8px;padding:20px 24px;max-width:620px">
+            <h3 style="margin:0 0 6px;font-size:14px;color:#991b1b">User: Delete My Own Data</h3>
+            <p style="margin:0 0 10px;font-size:13px;color:#6b7280">Place the shortcode below anywhere on your site (e.g. a privacy/account page) to let logged-in users permanently delete their own learning records.</p>
+            <code style="background:#eff6ff;color:#2563eb;padding:6px 14px;border-radius:5px;font-size:13px;border:1px solid #bfdbfe;font-family:monospace;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent.trim())" title="Click to copy">[snn_learn_delete_my_data]</code>
+            <span style="color:#16a34a;font-size:12px;margin-left:8px;opacity:0;transition:opacity .3s" id="snn-user-del-copied">&#10003; Copied!</span>
+            <script>document.querySelector('[onclick*="snn-user-del-copied"]') && 0; document.querySelectorAll('code[onclick]').forEach(function(c){c.addEventListener('click',function(){var s=document.getElementById('snn-user-del-copied');if(s){s.style.opacity='1';setTimeout(function(){s.style.opacity='0';},1600);}});});</script>
+        </div>
+
     </div>
     <?php
 }
@@ -456,6 +489,14 @@ function snn_learn_shortcodes_page() {
             'attributes'  => [
                 'label'           => 'Button text. Default: "Mark as Completed".',
                 'completed_label' => 'Text shown after completion. Default: "✓ Completed".',
+            ],
+        ],
+        [
+            'tag'         => '[snn_learn_delete_my_data]',
+            'description' => 'Renders a "Delete My Learning Data" button (logged-in users only). On click, after a confirmation dialog, permanently deletes all the current user\'s enrollment and progress records from the database. Useful for GDPR / privacy pages.',
+            'attributes'  => [
+                'label'           => 'Button text. Default: "Delete My Learning Data".',
+                'confirmed_label' => 'Text shown after deletion. Default: "✓ Your data has been deleted.".',
             ],
         ],
     ];
@@ -518,6 +559,11 @@ function snn_learn_shortcodes_page() {
                         <td style="padding:6px 12px 6px 0;font-family:monospace;color:#2563eb">GET</td>
                         <td style="padding:6px 12px 6px 0;font-family:monospace;color:#374151">/wp-json/snn-learn/v1/progress</td>
                         <td style="padding:6px 0;color:#4b5563">Query: <code>?course_id=INT</code> — Returns <code>{ progress: 0-100 }</code>.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:6px 12px 6px 0;font-family:monospace;color:#dc2626">DELETE</td>
+                        <td style="padding:6px 12px 6px 0;font-family:monospace;color:#374151">/wp-json/snn-learn/v1/my-data</td>
+                        <td style="padding:6px 0;color:#4b5563">No body. Permanently deletes all enrollment rows for the authenticated user. Nonce via X-WP-Nonce header.</td>
                     </tr>
                 </tbody>
             </table>
@@ -633,6 +679,15 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
     $t   = $wpdb->prefix . 'snn_learn_enrollments';
     $now = time();
 
+    // 1. Ensure the top-level course enrollment row exists
+    if ( $post_id != $course_id ) {
+        $wpdb->query( $wpdb->prepare(
+            "INSERT IGNORE INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at) VALUES (%d, %d, %d, %d, %d)",
+            (int) $user_id, (int) $course_id, (int) $course_id, $now, $now
+        ) );
+    }
+
+    // 2. Continue with the lesson-level update/insert
     $existing = $wpdb->get_row( $wpdb->prepare(
         "SELECT id, completed_at FROM $t WHERE user_id=%d AND post_id=%d",
         (int) $user_id, (int) $post_id
@@ -704,6 +759,14 @@ add_action( 'rest_api_init', function () {
         ],
     ] );
 
+    // DELETE /wp-json/snn-learn/v1/my-data
+    // Logged-in user permanently deletes all their own enrollment rows.
+    register_rest_route( 'snn-learn/v1', '/my-data', [
+        'methods'             => 'DELETE',
+        'callback'            => 'snn_learn_rest_delete_my_data',
+        'permission_callback' => function () { return is_user_logged_in(); },
+    ] );
+
 } );
 
 function snn_learn_rest_complete( WP_REST_Request $request ) {
@@ -761,6 +824,14 @@ function snn_learn_rest_completed_lessons( WP_REST_Request $request ) {
     ) );
     $completed_ids = array_map( 'intval', array_column( $rows, 'post_id' ) );
     return rest_ensure_response( [ 'completed' => $completed_ids ] );
+}
+
+function snn_learn_rest_delete_my_data( WP_REST_Request $request ) {
+    global $wpdb;
+    $user_id = get_current_user_id();
+    $t       = $wpdb->prefix . 'snn_learn_enrollments';
+    $wpdb->delete( $t, [ 'user_id' => (int) $user_id ], [ '%d' ] );
+    return rest_ensure_response( [ 'success' => true ] );
 }
 
 // Force no-cache headers on all SNN Learn REST responses — prevents Cloudflare / proxy caching
@@ -1142,6 +1213,54 @@ add_shortcode( 'snn_learn_mark_completed', function ( $atts ) {
             }
         });
     })();
+    </script>
+    <?php
+    return ob_get_clean();
+} );
+
+// ----------------------------------------------------------
+// [snn_learn_delete_my_data]
+// ----------------------------------------------------------
+add_shortcode( 'snn_learn_delete_my_data', function ( $atts ) {
+    $atts = shortcode_atts( [
+        'label'           => 'Delete My Learning Data',
+        'confirmed_label' => '&#10003; Your data has been deleted.',
+    ], $atts );
+
+    if ( ! is_user_logged_in() ) return '';
+
+    $delete_url = esc_attr( rest_url( 'snn-learn/v1/my-data' ) );
+    $nonce      = esc_attr( wp_create_nonce( 'wp_rest' ) );
+    $uid        = 'snn_del_' . get_current_user_id();
+
+    ob_start();
+    ?>
+    <button
+        id="<?= esc_attr( $uid ) ?>"
+        class="snn-delete-my-data-btn"
+        data-delete-url="<?= $delete_url ?>"
+        data-nonce="<?= $nonce ?>"
+        data-done-label="<?= esc_attr( $atts['confirmed_label'] ) ?>"
+        onclick="snnDeleteMyData(this)"
+        style="background:#dc2626;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600"
+    ><?= esc_html( $atts['label'] ) ?></button>
+    <script>
+    if (typeof snnDeleteMyData === 'undefined') {
+        window.snnDeleteMyData = function (btn) {
+            if (!confirm('This will permanently delete all your learning progress and enrolment history. This cannot be undone. Continue?')) return;
+            btn.disabled = true;
+            fetch(btn.dataset.deleteUrl + '?_t=' + Date.now(), {
+                method: 'DELETE',
+                headers: { 'X-WP-Nonce': btn.dataset.nonce },
+                cache: 'no-store'
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                btn.outerHTML = '<span style="color:#16a34a;font-weight:600">' + btn.dataset.doneLabel + '</span>';
+            })
+            .catch(function () { btn.disabled = false; alert('An error occurred. Please try again.'); });
+        };
+    }
     </script>
     <?php
     return ob_get_clean();
