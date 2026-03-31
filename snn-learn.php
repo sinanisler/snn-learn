@@ -369,6 +369,7 @@ function snn_learn_settings_page() {
     ?>
     <div class="snn-learn-settings wrap">
         <h1>SNN Learn &mdash; Settings</h1>
+        <p>make the important ones as charts</p>
         <form method="post" action="">
             <?php wp_nonce_field( 'snn_learn_settings_save', 'snn_learn_nonce' ); ?>
             <table class="form-table" role="presentation">
