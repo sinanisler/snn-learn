@@ -732,6 +732,67 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
             'last_activity_at' => $now,
         ] );
     }
+
+    // 3. When a lesson is marked complete, auto-complete its parent chapter
+    //    if every lesson in that chapter is now done (chapters redirect so users
+    //    can never complete them manually).
+    if ( $mark_complete ) {
+        snn_learn_maybe_complete_chapter( $user_id, $post_id, $course_id, $now );
+    }
+}
+
+/**
+ * Mark a chapter as completed as soon as the first lesson under it is completed.
+ * Chapters redirect to their first lesson so users can never complete them manually.
+ * Called automatically from snn_learn_record_lesson — never needs to be called directly.
+ */
+function snn_learn_maybe_complete_chapter( $user_id, $lesson_id, $course_id, $now = null ) {
+    if ( ! $now ) $now = time();
+
+    $lesson = get_post( $lesson_id );
+    if ( ! $lesson || ! $lesson->post_parent ) return;
+
+    $chapter_id = (int) $lesson->post_parent;
+
+    // Confirm the parent is a chapter (its own parent must be the course)
+    $chapter = get_post( $chapter_id );
+    if ( ! $chapter || (int) $chapter->post_parent !== (int) $course_id ) return;
+
+    // Get every lesson ID under this chapter
+    $pt          = snn_learn_get( 'course_post_type' );
+    $sibling_ids = get_posts( [
+        'post_type'      => $pt,
+        'post_parent'    => $chapter_id,
+        'posts_per_page' => -1,
+        'post_status'    => 'publish',
+        'fields'         => 'ids',
+    ] );
+
+    if ( empty( $sibling_ids ) ) return;
+
+    global $wpdb;
+    $t = $wpdb->prefix . 'snn_learn_enrollments';
+
+    // Mark chapter complete as soon as any lesson under it is completed
+    $existing = $wpdb->get_row( $wpdb->prepare(
+        "SELECT id, completed_at FROM $t WHERE user_id=%d AND post_id=%d",
+        (int) $user_id, $chapter_id
+    ) );
+
+    if ( $existing ) {
+        if ( ! $existing->completed_at ) {
+            $wpdb->update( $t, [ 'completed_at' => $now, 'last_activity_at' => $now ], [ 'id' => $existing->id ] );
+        }
+    } else {
+        $wpdb->insert( $t, [
+            'user_id'          => (int) $user_id,
+            'post_id'          => $chapter_id,
+            'course_id'        => (int) $course_id,
+            'enrolled_at'      => $now,
+            'completed_at'     => $now,
+            'last_activity_at' => $now,
+        ] );
+    }
 }
 
 // ============================================================
