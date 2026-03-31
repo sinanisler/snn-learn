@@ -898,7 +898,7 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
 
     ob_start();
     ?>
-    <div id="<?= $uid ?>-wrap" class="snn-video-player-wrap" style="position:relative;width:100%;background:<?= $c_bg ?>;border-radius:10px;overflow:hidden;user-select:none;font-family:sans-serif">
+    <div id="<?= $uid ?>-wrap" class="snn-video-player-wrap" style="position:relative;width:100%;background:<?= $c_bg ?>;overflow:hidden;user-select:none;font-family:sans-serif">
 
         <video id="<?= $uid ?>" preload="metadata" playsinline style="width:100%;display:block;cursor:pointer"></video>
 
