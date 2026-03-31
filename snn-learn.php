@@ -34,7 +34,8 @@ function snn_learn_create_table() {
         KEY idx_course_id (course_id),
         KEY idx_user_id (user_id),
         KEY idx_completed_at (completed_at),
-        KEY idx_enrolled_at (enrolled_at)
+        KEY idx_enrolled_at (enrolled_at),
+        KEY idx_last_activity_at (last_activity_at)
     ) $charset;";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -44,9 +45,9 @@ register_activation_hook( __FILE__, 'snn_learn_create_table' );
 
 // Auto-create / upgrade table on every plugin load — safe to run repeatedly (dbDelta is idempotent)
 add_action( 'plugins_loaded', function () {
-    if ( get_option( 'snn_learn_db_version' ) !== '2.1' ) {
+    if ( get_option( 'snn_learn_db_version' ) !== '2.2' ) {
         snn_learn_create_table();
-        update_option( 'snn_learn_db_version', '2.1' );
+        update_option( 'snn_learn_db_version', '2.2' );
     }
 } );
 
@@ -134,7 +135,12 @@ function snn_learn_dashboard_page() {
     $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
     $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE completed_at IS NOT NULL" );
-    $peak_day           = $wpdb->get_row( "SELECT FROM_UNIXTIME(enrolled_at, '%Y-%m-%d') AS date, COUNT(*) AS cnt FROM $t GROUP BY date ORDER BY cnt DESC LIMIT 1" );
+    // Use integer division instead of FROM_UNIXTIME() — avoids per-row date function overhead.
+    // Groups by UTC day boundary; date is formatted in PHP with gmdate().
+    $peak_day = $wpdb->get_row( "SELECT (enrolled_at DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt FROM $t GROUP BY day_ts ORDER BY cnt DESC LIMIT 1" );
+    if ( $peak_day ) {
+        $peak_day->date = gmdate( 'Y-m-d', (int) $peak_day->day_ts );
+    }
 
     // ---- Course Enrollment Trend (last 30 days) ----
     // Uses the master course-enrollment row (post_id = course_id) that snn_learn_record_lesson()
@@ -717,27 +723,27 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
         ) );
     }
 
-    // 2. Continue with the lesson-level update/insert
-    $existing = $wpdb->get_row( $wpdb->prepare(
-        "SELECT id, completed_at FROM $t WHERE user_id=%d AND post_id=%d",
-        (int) $user_id, (int) $post_id
-    ) );
-
-    if ( $existing ) {
-        $data = [ 'last_activity_at' => $now ];
-        if ( $mark_complete && ! $existing->completed_at ) {
-            $data['completed_at'] = $now;
-        }
-        $wpdb->update( $t, $data, [ 'id' => $existing->id ] );
+    // 2. Upsert the lesson row — single round-trip via ON DUPLICATE KEY UPDATE.
+    // COALESCE preserves an existing completed_at (never un-completes a lesson).
+    // Two query variants: when $mark_complete is false we omit completed_at from
+    // the INSERT entirely so it defaults to NULL and the UPDATE clause ignores it.
+    if ( $mark_complete ) {
+        $wpdb->query( $wpdb->prepare(
+            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
+             VALUES (%d, %d, %d, %d, %d, %d)
+             ON DUPLICATE KEY UPDATE
+                 last_activity_at = VALUES(last_activity_at),
+                 completed_at     = COALESCE(completed_at, VALUES(completed_at))",
+            (int) $user_id, (int) $post_id, (int) $course_id, $now, $now, $now
+        ) );
     } else {
-        $wpdb->insert( $t, [
-            'user_id'          => (int) $user_id,
-            'post_id'          => (int) $post_id,
-            'course_id'        => (int) $course_id,
-            'enrolled_at'      => $now,
-            'completed_at'     => $mark_complete ? $now : null,
-            'last_activity_at' => $now,
-        ] );
+        $wpdb->query( $wpdb->prepare(
+            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at)
+             VALUES (%d, %d, %d, %d, %d)
+             ON DUPLICATE KEY UPDATE
+                 last_activity_at = VALUES(last_activity_at)",
+            (int) $user_id, (int) $post_id, (int) $course_id, $now, $now
+        ) );
     }
 
     // 3. When a lesson is marked complete, auto-complete its parent chapter
@@ -780,26 +786,16 @@ function snn_learn_maybe_complete_chapter( $user_id, $lesson_id, $course_id, $no
     global $wpdb;
     $t = $wpdb->prefix . 'snn_learn_enrollments';
 
-    // Mark chapter complete as soon as any lesson under it is completed
-    $existing = $wpdb->get_row( $wpdb->prepare(
-        "SELECT id, completed_at FROM $t WHERE user_id=%d AND post_id=%d",
-        (int) $user_id, $chapter_id
+    // Single ODKU upsert — eliminates the SELECT round-trip.
+    // COALESCE preserves a pre-existing completed_at (chapter stays complete once completed).
+    $wpdb->query( $wpdb->prepare(
+        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
+         VALUES (%d, %d, %d, %d, %d, %d)
+         ON DUPLICATE KEY UPDATE
+             completed_at     = COALESCE(completed_at, VALUES(completed_at)),
+             last_activity_at = VALUES(last_activity_at)",
+        (int) $user_id, $chapter_id, (int) $course_id, $now, $now, $now
     ) );
-
-    if ( $existing ) {
-        if ( ! $existing->completed_at ) {
-            $wpdb->update( $t, [ 'completed_at' => $now, 'last_activity_at' => $now ], [ 'id' => $existing->id ] );
-        }
-    } else {
-        $wpdb->insert( $t, [
-            'user_id'          => (int) $user_id,
-            'post_id'          => $chapter_id,
-            'course_id'        => (int) $course_id,
-            'enrolled_at'      => $now,
-            'completed_at'     => $now,
-            'last_activity_at' => $now,
-        ] );
-    }
 }
 
 // ============================================================
