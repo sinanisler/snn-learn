@@ -86,7 +86,7 @@ add_action( 'admin_menu', function () {
         'dashicons-welcome-learn-more',
         2
     );
-    add_submenu_page( 'snn-learn', 'Dashboard',  'Dashboard',  'manage_options', 'snn-learn',            'snn_learn_dashboard_page'  );
+    add_submenu_page( 'snn-learn', 'SNN Learn Dashboard',  'Dashboard',  'manage_options', 'snn-learn',            'snn_learn_dashboard_page'  );
     add_submenu_page( 'snn-learn', 'Settings',   'Settings',   'manage_options', 'snn-learn-settings',   'snn_learn_settings_page'   );
     add_submenu_page( 'snn-learn', 'Shortcodes', 'Shortcodes', 'manage_options', 'snn-learn-shortcodes', 'snn_learn_shortcodes_page' );
     // Note: chapters and lessons share the same post type — depth in hierarchy determines the role.
