@@ -535,6 +535,11 @@ function snn_learn_shortcodes_page() {
                 'confirmed_label' => 'Text shown after deletion. Default: "✓ Your data has been deleted.".',
             ],
         ],
+        [
+            'tag'         => '[snn_learn_my_courses]',
+            'description' => 'Renders a list of all courses the current logged-in user is enrolled in, with their per-course progress percentage and a link to continue learning.',
+            'attributes'  => [],
+        ],
     ];
     ?>
     <div class="snn-learn-shortcodes wrap">
@@ -746,11 +751,11 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
         ) );
     }
 
-    // 3. When a lesson is marked complete, auto-complete its parent chapter
-    //    if every lesson in that chapter is now done (chapters redirect so users
-    //    can never complete them manually).
+    // 3. When a lesson is marked complete, auto-complete its parent chapter,
+    //    then check if the whole course is now done too.
     if ( $mark_complete ) {
         snn_learn_maybe_complete_chapter( $user_id, $post_id, $course_id, $now );
+        snn_learn_maybe_complete_course( $user_id, $course_id, $now );
     }
 }
 
@@ -796,6 +801,43 @@ function snn_learn_maybe_complete_chapter( $user_id, $lesson_id, $course_id, $no
              last_activity_at = VALUES(last_activity_at)",
         (int) $user_id, $chapter_id, (int) $course_id, $now, $now, $now
     ) );
+}
+
+/**
+ * Mark the top-level course row as completed when every lesson in the course
+ * has a completed_at value for this user.
+ * Called automatically from snn_learn_record_lesson — never call directly.
+ */
+function snn_learn_maybe_complete_course( $user_id, $course_id, $now = null ) {
+    if ( ! $now ) $now = time();
+
+    $all_lessons = snn_learn_get_course_lessons( $course_id );
+    if ( empty( $all_lessons ) ) return;
+
+    global $wpdb;
+    $t = $wpdb->prefix . 'snn_learn_enrollments';
+
+    // Count how many of those lessons this user has completed
+    $placeholders = implode( ',', array_fill( 0, count( $all_lessons ), '%d' ) );
+    $args         = array_merge( [ $user_id ], $all_lessons );
+    $done_count   = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(*) FROM $t WHERE user_id = %d AND post_id IN ($placeholders) AND completed_at IS NOT NULL",
+        $args
+    ) );
+
+    if ( $done_count < count( $all_lessons ) ) return;
+
+    // All lessons done — stamp completed_at on the course row (COALESCE never un-completes it)
+    $wpdb->query( $wpdb->prepare(
+        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
+         VALUES (%d, %d, %d, %d, %d, %d)
+         ON DUPLICATE KEY UPDATE
+             completed_at     = COALESCE(completed_at, VALUES(completed_at)),
+             last_activity_at = VALUES(last_activity_at)",
+        (int) $user_id, (int) $course_id, (int) $course_id, $now, $now, $now
+    ) );
+
+    do_action( 'snn_learn_course_completed', (int) $user_id, (int) $course_id );
 }
 
 // ============================================================
@@ -1350,6 +1392,47 @@ add_shortcode( 'snn_learn_delete_my_data', function ( $atts ) {
     }
     </script>
     <?php
+    return ob_get_clean();
+} );
+
+// ----------------------------------------------------------
+// [snn_learn_my_courses]
+// ----------------------------------------------------------
+add_shortcode( 'snn_learn_my_courses', function () {
+    $user_id = get_current_user_id();
+    if ( ! $user_id ) return '';
+
+    global $wpdb;
+    $t = $wpdb->prefix . 'snn_learn_enrollments';
+
+    // Fetch all course rows for this user (post_id = course_id = top-level enrollment)
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT course_id, enrolled_at, completed_at FROM $t
+          WHERE user_id = %d AND post_id = course_id
+          ORDER BY enrolled_at DESC",
+        $user_id
+    ) );
+
+    if ( empty( $rows ) ) return '';
+
+    ob_start();
+    echo '<ul class="snn-my-courses">';
+    foreach ( $rows as $row ) {
+        $course_id  = (int) $row->course_id;
+        $title      = get_the_title( $course_id );
+        $url        = get_permalink( $course_id );
+        $progress   = snn_learn_calc_progress( $user_id, $course_id );
+        $is_done    = ! empty( $row->completed_at );
+
+        echo '<li class="snn-my-courses-item">';
+        echo '<a class="snn-my-courses-link" href="' . esc_url( $url ) . '">' . esc_html( $title ) . '</a>';
+        echo ' <span class="snn-my-courses-progress">' . (int) $progress . '%</span>';
+        if ( $is_done ) {
+            echo ' <span class="snn-my-courses-done">&#10003;</span>';
+        }
+        echo '</li>';
+    }
+    echo '</ul>';
     return ob_get_clean();
 } );
 
