@@ -130,7 +130,7 @@ function snn_learn_dashboard_page() {
     // ---- KPI Queries ----
     $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t" );
     $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
-    $completion_rate    = (float) $wpdb->get_var( "SELECT (COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) / NULLIF(COUNT(*),0)) * 100 FROM $t" );
+    $completion_rate    = (float) $wpdb->get_var( "SELECT (COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) / NULLIF(COUNT(*),0)) * 100 FROM $t WHERE post_id != course_id" );
     $weekly_active      = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= %d", $ts_7_days_ago ) );
     $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
