@@ -1120,6 +1120,11 @@ add_filter( 'rest_post_dispatch', function ( $response, $server, $request ) {
 
 require_once plugin_dir_path( __FILE__ ) . 'shortcodes.php';
 
+// Third-party integrations — only load when the relevant theme/plugin is active
+if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() === 'bricks' ) {
+    require_once plugin_dir_path( __FILE__ ) . 'third_party/bricks.php';
+}
+
 // ----------------------------------------------------------
 // [snn_learn_video_player] — moved to shortcodes.php
 // [snn_learn_progress]     — moved to shortcodes.php
