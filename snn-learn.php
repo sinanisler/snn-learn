@@ -1481,3 +1481,277 @@ add_action( 'template_redirect', function () {
         exit;
     }
 } );
+
+// ============================================================
+// 12. COMMENT LIST SHORTCODE
+// ============================================================
+
+function snn_learn_get_user_initials( $display_name ) {
+    $names    = explode( ' ', trim( $display_name ) );
+    $initials = count( $names ) === 1
+        ? strtoupper( substr( $names[0], 0, 1 ) )
+        : strtoupper( substr( $names[0], 0, 1 ) . substr( end( $names ), 0, 1 ) );
+    return $initials;
+}
+
+// [snn_learn_comment_list]
+// Atts: avatar (px), order (ASC|DESC), number, show_ratings (1|0), moderation_notice
+add_shortcode( 'snn_learn_comment_list', function ( $atts ) {
+    $atts = shortcode_atts( [
+        'avatar'            => 48,
+        'order'             => 'DESC',
+        'number'            => '',
+        'show_ratings'      => '1',
+        'moderation_notice' => 'Your comment is saved and waiting for approval.',
+    ], $atts );
+
+    $avatar       = max( 24, intval( $atts['avatar'] ) );
+    $order        = in_array( strtoupper( $atts['order'] ), [ 'ASC', 'DESC' ], true ) ? strtoupper( $atts['order'] ) : 'DESC';
+    $number       = $atts['number'] !== '' ? intval( $atts['number'] ) : '';
+    $show_ratings = ( $atts['show_ratings'] !== '0' && ! empty( $atts['show_ratings'] ) );
+    $mod_notice   = sanitize_text_field( $atts['moderation_notice'] );
+
+    $post_id = get_queried_object_id() ?: get_the_ID();
+    if ( ! $post_id ) return '';
+
+    $unapp_id = isset( $_GET['unapproved'] )      ? intval( $_GET['unapproved'] ) : 0;
+    $unapp_hx = isset( $_GET['moderation-hash'] ) ? sanitize_text_field( $_GET['moderation-hash'] ) : '';
+
+    $font_size   = max( 12, intval( $avatar * 0.38 ) );
+    $author_col  = $avatar + 40;
+
+    ob_start();
+    ?>
+<style>
+.snn-cl-wrap{width:100%}
+#comment{display:none!important}
+.snn-cl-list{list-style:none;margin:0;padding:0}
+.snn-cl-item{display:flex;align-items:flex-start;padding:20px 0;border-bottom:1px solid #f0f0f0}
+.snn-cl-item:last-child{border-bottom:0}
+.snn-cl-col-author{flex:0 0 <?php echo esc_attr( $author_col ); ?>px;text-align:center;padding-right:16px}
+.snn-cl-avatar{width:<?php echo esc_attr( $avatar ); ?>px;height:<?php echo esc_attr( $avatar ); ?>px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-weight:700;font-size:<?php echo esc_attr( $font_size ); ?>px;line-height:1}
+.snn-cl-meta{font-size:11px;color:#aaa;margin-top:6px;line-height:1.5}
+.snn-cl-col-body{flex:1;min-width:0}
+.snn-cl-bubble{background:#f7f8fa;padding:14px 16px;border-radius:10px}
+.snn-cl-text{line-height:1.8;color:#333;word-break:break-word}
+.snn-cl-text p{margin:0 0 .5em}
+.snn-cl-text blockquote{font-family:inherit;font-size:inherit;margin:8px 0;padding-left:12px;border-left:3px solid #e0e0e0;color:#666}
+.snn-cl-rating{margin-top:8px;font-size:18px;line-height:1}
+.snn-cl-star-on{color:#f5a623}
+.snn-cl-star-off{color:#ddd}
+.snn-cl-mod-notice{background:#fff8e1;color:#856404;padding:12px 16px;border-radius:8px;margin-bottom:18px;border:1px solid #ffe082;font-size:14px;font-weight:600}
+.snn-cl-unapp .snn-cl-bubble{border:2px dashed #ffe082}
+.snn-cl-unapp{opacity:.75}
+.snn-cl-empty{color:#aaa;text-align:center;padding:28px 0;font-size:14px}
+</style>
+<div class="snn-cl-wrap">
+    <?php
+    // --- Moderation / unapproved comment preview ---
+    if ( $unapp_id && $unapp_hx ) {
+        $unapp = get_comment( $unapp_id );
+        if ( $unapp && $unapp->comment_approved == '0' && (int) $unapp->comment_post_ID === $post_id ) {
+            echo '<div class="snn-cl-mod-notice">' . esc_html( $mod_notice ) . '</div>';
+            $ini = snn_learn_get_user_initials( $unapp->comment_author ?: 'A' );
+            ?>
+            <ul class="snn-cl-list">
+                <li class="snn-cl-item snn-cl-unapp">
+                    <div class="snn-cl-col-author">
+                        <div class="snn-cl-avatar"><?php echo esc_html( $ini ); ?></div>
+                        <div class="snn-cl-meta">
+                            <?php echo esc_html( get_comment_date( '', $unapp ) ); ?><br>
+                            <?php echo esc_html( get_comment_time( '', true, $unapp ) ); ?>
+                        </div>
+                    </div>
+                    <div class="snn-cl-col-body">
+                        <div class="snn-cl-bubble">
+                            <div class="snn-cl-text"><?php echo wp_kses_post( apply_filters( 'comment_text', $unapp->comment_content, $unapp ) ); ?></div>
+                        </div>
+                    </div>
+                </li>
+            </ul>
+            <?php
+        }
+    }
+
+    // --- Approved comments ---
+    $args = [
+        'post_id'                   => $post_id,
+        'status'                    => 'approve',
+        'order'                     => $order,
+        'no_found_rows'             => true,
+        'update_comment_meta_cache' => true,
+        'hierarchical'              => false,
+    ];
+    if ( $number !== '' ) {
+        $args['number'] = $number;
+    }
+    $comments = get_comments( $args );
+
+    if ( empty( $comments ) ) {
+        echo '<p class="snn-cl-empty">No comments yet.</p>';
+    } else {
+        echo '<ul class="snn-cl-list">';
+        foreach ( $comments as $c ) {
+            $ini    = snn_learn_get_user_initials( $c->comment_author ?: 'A' );
+            $rating = $show_ratings ? max( 0, min( 5, intval( get_comment_meta( $c->comment_ID, 'snn_rating_comment', true ) ) ) ) : 0;
+            ?>
+            <li class="snn-cl-item" id="snn-cl-<?php echo esc_attr( $c->comment_ID ); ?>">
+                <div class="snn-cl-col-author">
+                    <div class="snn-cl-avatar"><?php echo esc_html( $ini ); ?></div>
+                    <div class="snn-cl-meta">
+                        <?php echo esc_html( get_comment_date( '', $c ) ); ?><br>
+                        <?php echo esc_html( get_comment_time( '', true, $c ) ); ?>
+                    </div>
+                </div>
+                <div class="snn-cl-col-body">
+                    <div class="snn-cl-bubble">
+                        <div class="snn-cl-text"><?php echo wp_kses_post( apply_filters( 'comment_text', $c->comment_content, $c ) ); ?></div>
+                        <?php if ( $show_ratings && $rating >= 1 ) : ?>
+                        <div class="snn-cl-rating">
+                            <?php for ( $i = 1; $i <= 5; $i++ ) : ?>
+                                <span class="<?php echo $i <= $rating ? 'snn-cl-star-on' : 'snn-cl-star-off'; ?>">&#9733;</span>
+                            <?php endfor; ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </li>
+            <?php
+        }
+        echo '</ul>';
+    }
+    ?>
+</div>
+    <?php
+    return ob_get_clean();
+} );
+
+// ============================================================
+// 13. ADMIN: COMMENT RATINGS COLUMN
+// ============================================================
+
+add_filter( 'manage_edit-comments_columns', 'snn_learn_add_comment_rating_column' );
+function snn_learn_add_comment_rating_column( $columns ) {
+    $out = [];
+    foreach ( $columns as $key => $val ) {
+        $out[ $key ] = $val;
+        if ( $key === 'author' ) {
+            $out['snn_rating'] = 'Rating';
+        }
+    }
+    return $out;
+}
+
+add_action( 'manage_comments_custom_column', 'snn_learn_display_comment_rating_column', 10, 2 );
+function snn_learn_display_comment_rating_column( $column, $comment_id ) {
+    if ( $column !== 'snn_rating' ) return;
+    $rating = max( 0, min( 5, intval( get_comment_meta( $comment_id, 'snn_rating_comment', true ) ) ) );
+    echo '<div class="snn-learn-stars">';
+    for ( $i = 1; $i <= 5; $i++ ) {
+        echo '<span class="' . ( $i <= $rating ? 'snn-learn-star-on' : 'snn-learn-star-off' ) . '">&#9733;</span>';
+    }
+    echo '</div>';
+}
+
+// ============================================================
+// 14. ADMIN: COMMENT RATING METABOX
+// ============================================================
+
+add_action( 'add_meta_boxes_comment', 'snn_learn_add_comment_rating_metabox' );
+function snn_learn_add_comment_rating_metabox() {
+    add_meta_box(
+        'snn_learn_comment_rating_metabox',
+        'Comment Rating',
+        'snn_learn_comment_rating_metabox_html',
+        'comment',
+        'normal',
+        'high'
+    );
+}
+
+function snn_learn_comment_rating_metabox_html( $comment ) {
+    $rating = max( 0, min( 5, intval( get_comment_meta( $comment->comment_ID, 'snn_rating_comment', true ) ) ) );
+    wp_nonce_field( 'snn_learn_comment_rating_nonce_action', 'snn_learn_comment_rating_nonce', false );
+    ?>
+    <div style="padding:4px 0 8px">
+        <div class="snn-learn-mb-stars" style="font-size:32px;line-height:1;margin-bottom:10px;cursor:pointer;user-select:none">
+            <?php for ( $i = 1; $i <= 5; $i++ ) : ?>
+                <span data-val="<?php echo $i; ?>" class="<?php echo $i <= $rating ? 'snn-learn-star-on' : 'snn-learn-star-off'; ?>" style="margin-right:2px">&#9733;</span>
+            <?php endfor; ?>
+        </div>
+        <select name="snn_rating_comment" id="snn_rating_comment" style="display:none">
+            <?php for ( $i = 0; $i <= 5; $i++ ) : ?>
+                <option value="<?php echo $i; ?>" <?php selected( $rating, $i ); ?>>
+                    <?php echo $i === 0 ? 'No Rating' : $i . ' Star' . ( $i > 1 ? 's' : '' ); ?>
+                </option>
+            <?php endfor; ?>
+        </select>
+        <p class="description" style="margin-top:4px">Stored as <code>snn_rating_comment</code> in comment meta.</p>
+    </div>
+    <script>
+    (function () {
+        var wrap   = document.querySelector('.snn-learn-mb-stars');
+        var stars  = wrap ? wrap.querySelectorAll('span') : [];
+        var select = document.getElementById('snn_rating_comment');
+        if (!wrap || !select) return;
+
+        function paintStars(val) {
+            stars.forEach(function (s, i) {
+                s.className = i < val ? 'snn-learn-star-on' : 'snn-learn-star-off';
+            });
+        }
+
+        stars.forEach(function (s) {
+            s.addEventListener('click', function () {
+                var v = parseInt(this.dataset.val, 10);
+                select.value = v;
+                paintStars(v);
+            });
+            s.addEventListener('mouseenter', function () {
+                paintStars(parseInt(this.dataset.val, 10));
+            });
+        });
+
+        wrap.addEventListener('mouseleave', function () {
+            paintStars(parseInt(select.value, 10));
+        });
+    })();
+    </script>
+    <?php
+}
+
+add_action( 'edit_comment', 'snn_learn_save_comment_rating_metabox' );
+function snn_learn_save_comment_rating_metabox( $comment_id ) {
+    if (
+        ! isset( $_POST['snn_learn_comment_rating_nonce'] ) ||
+        ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['snn_learn_comment_rating_nonce'] ) ), 'snn_learn_comment_rating_nonce_action' )
+    ) {
+        return;
+    }
+    if ( ! current_user_can( 'edit_comment', $comment_id ) ) {
+        return;
+    }
+    if ( isset( $_POST['snn_rating_comment'] ) ) {
+        $rating = max( 0, min( 5, intval( $_POST['snn_rating_comment'] ) ) );
+        update_comment_meta( $comment_id, 'snn_rating_comment', $rating );
+    }
+}
+
+// Shared admin CSS for star colors (column list + metabox)
+add_action( 'admin_head', 'snn_learn_comment_admin_star_css' );
+function snn_learn_comment_admin_star_css() {
+    $screen = get_current_screen();
+    if ( ! $screen || ! in_array( $screen->id, [ 'edit-comments', 'comment' ], true ) ) return;
+    ?>
+    <style>
+    .snn-learn-stars { font-size: 0; white-space: nowrap; }
+    .snn-learn-star-on, .snn-learn-star-off { font-size: 22px; display: inline-block; line-height: 1; }
+    .snn-learn-star-on  { color: #f5a623; }
+    .snn-learn-star-off { color: #c8c8c8; }
+    #snn_learn_comment_rating_metabox h2.hndle { background: #2271b1; color: #fff; border-radius: 2px 2px 0 0; }
+    .snn-learn-mb-stars .snn-learn-star-on  { color: #f5a623; }
+    .snn-learn-mb-stars .snn-learn-star-off { color: #c8c8c8; }
+    .snn-learn-mb-stars span:hover         { opacity: .85; }
+    </style>
+    <?php
+}
