@@ -633,20 +633,12 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
     $show_button = filter_var( $atts['button'], FILTER_VALIDATE_BOOLEAN );
     $assets_url  = plugins_url( 'assets/', __FILE__ );
 
-    $font_css_url = home_url( '/?getfonts=snn-cert' );
-
     ob_start();
 
     ?>
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'cinzel-normal-400.woff2' ); ?>">
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'cinzel-normal-700.woff2' ); ?>">
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'cinzel-normal-900.woff2' ); ?>">
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'great-vibes-normal-400.woff2' ); ?>">
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'montserrat-normal-300.woff2' ); ?>">
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'montserrat-normal-500.woff2' ); ?>">
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'montserrat-normal-700.woff2' ); ?>">
-    <link rel="stylesheet" href="<?php echo esc_url( $font_css_url ); ?>">
-    <div style="position:absolute;left:-9999px;visibility:hidden">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Great+Vibes&family=Montserrat:wght@300;500;700&display=swap" rel="stylesheet">
+    <div class="snn-cert-font-preloader">
         <span style="font-family:'Cinzel';font-weight:400">.</span>
         <span style="font-family:'Cinzel';font-weight:700">.</span>
         <span style="font-family:'Cinzel';font-weight:900">.</span>
@@ -656,6 +648,7 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
         <span style="font-family:'Montserrat';font-weight:700">.</span>
     </div>
     <style>
+    .snn-cert-font-preloader { position: absolute; left: -9999px; visibility: hidden; }
     #snn-cert-image {
         max-width: 100%; height: auto; box-shadow: 0 30px 60px rgba(0,0,0,0.5);
         border-radius: 8px; display: none; margin: 20px auto;

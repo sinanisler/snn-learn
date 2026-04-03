@@ -52,38 +52,7 @@ add_action( 'plugins_loaded', function () {
 } );
 
 // ============================================================
-// 2. CERTIFICATE FONTS ENDPOINT  /?getfonts=snn-cert
-// Serves @font-face CSS for local fonts — same approach as Google Fonts
-// ============================================================
-
-add_filter( 'query_vars', function ( $vars ) {
-    $vars[] = 'getfonts';
-    return $vars;
-} );
-
-add_action( 'template_redirect', function () {
-    if ( get_query_var( 'getfonts' ) !== 'snn-cert' ) return;
-
-    $assets_url = plugins_url( 'assets/', __FILE__ );
-
-    $css = '
-@font-face { font-family: "Cinzel";      font-style: normal; font-weight: 400; font-display: swap; src: url("' . esc_url( $assets_url . 'cinzel-normal-400.woff2' ) . '") format("woff2"); }
-@font-face { font-family: "Cinzel";      font-style: normal; font-weight: 700; font-display: swap; src: url("' . esc_url( $assets_url . 'cinzel-normal-700.woff2' ) . '") format("woff2"); }
-@font-face { font-family: "Cinzel";      font-style: normal; font-weight: 900; font-display: swap; src: url("' . esc_url( $assets_url . 'cinzel-normal-900.woff2' ) . '") format("woff2"); }
-@font-face { font-family: "Great Vibes"; font-style: normal; font-weight: 400; font-display: swap; src: url("' . esc_url( $assets_url . 'great-vibes-normal-400.woff2' ) . '") format("woff2"); }
-@font-face { font-family: "Montserrat";  font-style: normal; font-weight: 300; font-display: swap; src: url("' . esc_url( $assets_url . 'montserrat-normal-300.woff2' ) . '") format("woff2"); }
-@font-face { font-family: "Montserrat";  font-style: normal; font-weight: 500; font-display: swap; src: url("' . esc_url( $assets_url . 'montserrat-normal-500.woff2' ) . '") format("woff2"); }
-@font-face { font-family: "Montserrat";  font-style: normal; font-weight: 700; font-display: swap; src: url("' . esc_url( $assets_url . 'montserrat-normal-700.woff2' ) . '") format("woff2"); }
-';
-
-    header( 'Content-Type: text/css; charset=utf-8' );
-    header( 'Cache-Control: public, max-age=31536000' );
-    echo $css;
-    exit;
-} );
-
-// ============================================================
-// 3. SETTINGS HELPERS
+// 2. SETTINGS HELPERS
 // ============================================================
 
 function snn_learn_defaults() {
