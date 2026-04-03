@@ -851,16 +851,19 @@ function snn_learn_get_course_lessons( $course_id ) {
  */
 function snn_learn_calc_progress( $user_id, $course_id ) {
     global $wpdb;
-    $t             = $wpdb->prefix . 'snn_learn_enrollments';
-    $total_lessons = count( snn_learn_get_course_lessons( $course_id ) );
-    if ( ! $total_lessons ) return 0;
+    $t           = $wpdb->prefix . 'snn_learn_enrollments';
+    $all_lessons = snn_learn_get_course_lessons( $course_id );
+    $total       = count( $all_lessons );
+    if ( ! $total ) return 0;
 
-    $completed = (int) $wpdb->get_var( $wpdb->prepare(
-        "SELECT COUNT(*) FROM $t WHERE user_id=%d AND course_id=%d AND completed_at IS NOT NULL",
-        $user_id, $course_id
+    $placeholders = implode( ',', array_fill( 0, $total, '%d' ) );
+    $args         = array_merge( [ (int) $user_id ], $all_lessons );
+    $completed    = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(*) FROM $t WHERE user_id = %d AND post_id IN ($placeholders) AND completed_at IS NOT NULL",
+        $args
     ) );
 
-    return min( 100, (int) round( $completed / $total_lessons * 100 ) );
+    return min( 100, (int) round( $completed / $total * 100 ) );
 }
 
 /**
