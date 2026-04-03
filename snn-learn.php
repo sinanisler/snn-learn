@@ -627,26 +627,27 @@ function snn_learn_shortcodes_page() {
     $shortcodes = [
         [
             'tag'         => '[snn_learn_video_player]',
-            'description' => 'Renders the native HTML5 video player for the current lesson. Video source is read from the custom field configured in Settings. Tracks watched seconds and fires the REST completion endpoint automatically.',
+            'description' => 'Renders the native HTML5 video player for the current lesson. Video source is read from the custom field configured in Settings. Tracks watched seconds and fires the REST completion endpoint automatically. Cache-aware: on every page load it performs a fresh lesson-status check via a cache-busting REST request (with a _t=Date.now() timestamp) so the "Completed" badge appears correctly even when a caching plugin such as WP Rocket or Cloudflare serves cached HTML. When completion fires, it dispatches a custom JavaScript event snnLearnProgress on the document — developers can listen to this event to update other parts of the page (e.g. a sidebar progress bar) in real time without a page refresh.',
             'attributes'  => [],
         ],
         [
             'tag'         => '[snn_learn_progress]',
-            'description' => 'Outputs a plain number (0–100) representing the current user\'s completion percentage for the grandparent course of the current post. Safe to use inside any loop or builder element.',
+            'description' => 'Outputs a plain number (0–100) representing the current user\'s completion percentage for the grandparent course of the current post. Safe to use inside any loop or builder element. Supports an optional output attribute: use output="bool" to receive the string "true" or "false" instead of a number — useful for conditional visibility logic in page builders such as Elementor or Bricks.',
             'attributes'  => [
                 'course_id' => 'Optional. Manually specify a course ID. Defaults to the grandparent course of the current post.',
+                'output'    => 'Optional. Set to "bool" to return "true" or "false" instead of 0–100. Returns "true" when progress is greater than 1%.',
             ],
         ],
         [
             'tag'         => '[snn_learn_course_chapter_lesson_list]',
-            'description' => 'Renders the full chapter → lesson navigation list for the current course. Chapters and lessons share one post type — chapters are direct children of the course (no link), lessons are children of chapters (linked). Ordered by menu_order. Completed lessons show a ✓ mark.',
+            'description' => 'Renders the full chapter → lesson navigation list for the current course. Chapters and lessons share one post type — chapters are direct children of the course (no link), lessons are children of chapters (linked). Ordered by menu_order. Completed lessons show a ✓ mark. The link of the lesson currently being viewed receives the CSS class snn-lesson-current, making it easy to style the active item in your sidebar navigation.',
             'attributes'  => [
                 'course_id' => 'Optional. Override the course ID.',
             ],
         ],
         [
             'tag'         => '[snn_learn_mark_completed]',
-            'description' => 'Renders a "Mark as Completed" button for doc / article / code-snippet lessons that have no video. On click it calls the REST API to mark the lesson complete and enroll the user in the course.',
+            'description' => 'Renders a "Mark as Completed" button for doc / article / code-snippet lessons that have no video. On click it calls the REST API to mark the lesson complete and enroll the user in the course. Cache-aware: on every page load it performs a live status check via a cache-busting REST request so the button reflects the correct completed state even when caching plugins serve stale HTML. Also dispatches the snnLearnProgress JavaScript event on completion so other page elements can react immediately.',
             'attributes'  => [
                 'label'           => 'Button text. Default: "Mark as Completed".',
                 'completed_label' => 'Text shown after completion. Default: "✓ Completed".',
@@ -664,6 +665,17 @@ function snn_learn_shortcodes_page() {
             'tag'         => '[snn_learn_my_courses]',
             'description' => 'Renders a list of all courses the current logged-in user is enrolled in, with their per-course progress percentage and a link to continue learning.',
             'attributes'  => [],
+        ],
+        [
+            'tag'         => '[snn_learn_comment_list]',
+            'description' => 'Renders the styled comment list for the current post. Features initials-based avatar circles (first + last name initials), star ratings (stored in comment meta as snn_rating_comment and editable from the WordPress comment edit screen), and a moderation notice shown to users whose comment is awaiting approval.',
+            'attributes'  => [
+                'avatar'            => 'Avatar circle size in pixels. Default: 48.',
+                'order'             => 'Comment sort order. "ASC" (oldest first) or "DESC" (newest first). Default: DESC.',
+                'number'            => 'Limit the number of comments shown. Default: all approved comments.',
+                'show_ratings'      => 'Show or hide the star rating display. Set to "0" to hide. Default: 1 (visible).',
+                'moderation_notice' => 'Custom text shown above a pending comment when the author visits the page via the WordPress moderation link. Default: "Your comment is saved and waiting for approval.".',
+            ],
         ],
     ];
     ?>
