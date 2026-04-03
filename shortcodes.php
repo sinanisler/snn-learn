@@ -623,3 +623,365 @@ add_shortcode( 'snn_learn_comment_list', function ( $atts ) {
     <?php
     return ob_get_clean();
 } );
+
+// ----------------------------------------------------------
+// [snn_learn_user_certificate]
+// [snn_learn_user_certificate button="true"]
+// ----------------------------------------------------------
+add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
+    $atts        = shortcode_atts( [ 'button' => 'false' ], $atts );
+    $show_button = filter_var( $atts['button'], FILTER_VALIDATE_BOOLEAN );
+    $assets_url  = plugins_url( 'assets/', __FILE__ );
+
+    ob_start();
+
+    if ( $show_button ) {
+        ?>
+        <div class="button-group" id="actionPanel" style="display:none;flex-direction:column;">
+            <button class="premium-btn" id="dlBtn" onclick="downloadCertificate()">Download Certificate</button>
+            <a id="linkedinLink" href="#" target="_blank" class="premium-btn">Add to LinkedIn</a>
+            <button class="premium-btn" id="copyBtn" onclick="copyLink()">Copy Link</button>
+        </div>
+        <?php
+    } else {
+        ?>
+        <style>
+        @font-face {
+            font-family: 'Cinzel';
+            font-style: normal;
+            font-weight: 400;
+            src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-400.woff2' ); ?>') format('woff2');
+        }
+        @font-face {
+            font-family: 'Cinzel';
+            font-style: normal;
+            font-weight: 700;
+            src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-700.woff2' ); ?>') format('woff2');
+        }
+        @font-face {
+            font-family: 'Cinzel';
+            font-style: normal;
+            font-weight: 900;
+            src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-900.woff2' ); ?>') format('woff2');
+        }
+        @font-face {
+            font-family: 'Great Vibes';
+            font-style: normal;
+            font-weight: 400;
+            src: url('<?php echo esc_url( $assets_url . 'great-vibes-normal-400.woff2' ); ?>') format('woff2');
+        }
+        @font-face {
+            font-family: 'Montserrat';
+            font-style: normal;
+            font-weight: 300;
+            src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-300.woff2' ); ?>') format('woff2');
+        }
+        @font-face {
+            font-family: 'Montserrat';
+            font-style: normal;
+            font-weight: 500;
+            src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-500.woff2' ); ?>') format('woff2');
+        }
+        @font-face {
+            font-family: 'Montserrat';
+            font-style: normal;
+            font-weight: 700;
+            src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-700.woff2' ); ?>') format('woff2');
+        }
+        #snn-cert-image {
+            max-width: 100%; height: auto; box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+            border-radius: 8px; display: none; margin: 20px auto;
+        }
+        .snn-cert-loading {
+            color: #BF953F; font-family: 'Cinzel', serif; font-size: 20px;
+            letter-spacing: 2px; animation: snnCertPulse 1.5s infinite;
+            text-align: center; margin-top: 50px;
+        }
+        @keyframes snnCertPulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+        .snn-cert-font-preloader { position: absolute; left: -9999px; visibility: hidden; }
+        .snn-cert-btn-group { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; margin-top: 20px; }
+        .premium-btn {
+            background: #141E30; color: white; border: 2px solid #BF953F; text-align: center;
+            padding: 12px 25px; font-family: 'Cinzel', serif; font-weight: 700;
+            text-transform: uppercase; cursor: pointer; transition: 0.3s;
+            text-decoration: none; border-radius: 4px; font-size: 14px; margin-bottom: 5px;
+        }
+        .premium-btn:hover { background: #BF953F; color: #141E30; }
+        </style>
+
+        <div class="snn-cert-font-preloader" aria-hidden="true">
+            <span style="font-family: 'Cinzel'; font-weight: 400;">.</span>
+            <span style="font-family: 'Cinzel'; font-weight: 700;">.</span>
+            <span style="font-family: 'Cinzel'; font-weight: 900;">.</span>
+            <span style="font-family: 'Great Vibes'; font-weight: 400;">.</span>
+            <span style="font-family: 'Montserrat'; font-weight: 300;">.</span>
+            <span style="font-family: 'Montserrat'; font-weight: 500;">.</span>
+            <span style="font-family: 'Montserrat'; font-weight: 700;">.</span>
+        </div>
+
+        <div class="snn-certificate-container">
+            <div class="snn-cert-loading" id="snnCertStatusLabel">Forging Certificate...</div>
+            <img id="snn-cert-image" alt="Certificate">
+        </div>
+
+        <script>
+        (function () {
+            var snnCertConfig = {
+                accentBlue: '#0556c7',
+                darkBlue:   '#141E30',
+                lightGray:  '#f9f9f9',
+                textGray:   '#666',
+                canvasWidth:  1600,
+                canvasHeight: 1130,
+                orgId: '110658612'
+            };
+
+            var certificateCanvas = null;
+            var certificateData = {
+                courseName:      'Course Name Goes Here',
+                userName:        'Participant Name',
+                certificateId:   'NO-ID',
+                completionDate:  ''
+            };
+
+            function waitForFonts() {
+                return document.fonts.ready.then(function () {
+                    return new Promise(function (resolve) { setTimeout(resolve, 500); });
+                });
+            }
+
+            window.downloadCertificate = function () {
+                if (!certificateCanvas) { alert('Certificate is still forging...'); return; }
+                var link = document.createElement('a');
+                link.download = 'Certificate-' + certificateData.userName.replace(/\s+/g, '-') + '.png';
+                link.href = certificateCanvas.toDataURL('image/png');
+                link.click();
+            };
+
+            window.copyLink = function () {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(window.location.href).then(function () {
+                        alert('Link copied to clipboard!');
+                    }).catch(function () {
+                        prompt('Copy this link:', window.location.href);
+                    });
+                } else {
+                    prompt('Copy this link:', window.location.href);
+                }
+            };
+
+            function updateLinkedinLink() {
+                var baseUrl = 'https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME';
+                var params = new URLSearchParams({
+                    name:           certificateData.courseName,
+                    organizationId: snnCertConfig.orgId,
+                    issueYear:      new Date().getFullYear(),
+                    issueMonth:     new Date().getMonth() + 1,
+                    certId:         certificateData.certificateId,
+                    certUrl:        window.location.href
+                });
+                var lnLink = document.getElementById('linkedinLink');
+                if (lnLink) lnLink.href = baseUrl + '&' + params.toString();
+            }
+
+            function getCourseName(cid) {
+                return fetch('/wp-json/wp/v2/course/' + encodeURIComponent(cid))
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { return (d.title && d.title.rendered) ? d.title.rendered : 'Course'; })
+                    .catch(function () { return 'Course'; });
+            }
+
+            function getUserRealName(uid) {
+                return fetch('/wp-json/snn-edu/v1/user-name/' + encodeURIComponent(uid))
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { return d.full_name || 'Participant'; })
+                    .catch(function () { return 'Participant'; });
+            }
+
+            function drawFittedText(ctx, text, x, y, maxWidth, fontFamily, fontWeight, maxFontSize, minFontSize) {
+                minFontSize = minFontSize || 20;
+                var fontSize = maxFontSize;
+                ctx.font = fontWeight + ' ' + fontSize + 'px "' + fontFamily + '"';
+                var textWidth = ctx.measureText(text).width;
+                while (textWidth > maxWidth && fontSize > minFontSize) {
+                    fontSize -= 2;
+                    ctx.font = fontWeight + ' ' + fontSize + 'px "' + fontFamily + '"';
+                    textWidth = ctx.measureText(text).width;
+                }
+                if (textWidth > maxWidth) {
+                    var words = text.split(' ');
+                    var lines = [];
+                    var currentLine = words[0];
+                    for (var i = 1; i < words.length; i++) {
+                        var testLine = currentLine + ' ' + words[i];
+                        if (ctx.measureText(testLine).width > maxWidth) {
+                            lines.push(currentLine);
+                            currentLine = words[i];
+                        } else { currentLine = testLine; }
+                    }
+                    lines.push(currentLine);
+                    var lineHeight = fontSize * 1.2;
+                    var startY = y - ((lines.length - 1) * lineHeight) / 2;
+                    lines.forEach(function (line, index) { ctx.fillText(line, x, startY + (index * lineHeight)); });
+                } else { ctx.fillText(text, x, y); }
+            }
+
+            function getGoldGrad(ctx, x, y, w, h) {
+                var grad = ctx.createLinearGradient(x, y, x + w, y + h);
+                grad.addColorStop(0,    '#BF953F');
+                grad.addColorStop(0.25, '#e5db6f');
+                grad.addColorStop(0.5,  '#B38728');
+                grad.addColorStop(0.75, '#e1d55f');
+                grad.addColorStop(1,    '#AA771C');
+                return grad;
+            }
+
+            function drawSeamlessBorder(ctx, w, h) {
+                var blueWidth  = 18, goldWidth = 8, margin = 40, gap = 25, cornerSize = 90;
+                var goldGrad   = getGoldGrad(ctx, 0, 0, w, 0);
+
+                ctx.strokeStyle = snnCertConfig.accentBlue; ctx.lineWidth = blueWidth;
+                ctx.beginPath(); ctx.moveTo(margin + cornerSize, margin); ctx.lineTo(w - margin - cornerSize, margin); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(margin + cornerSize, h - margin); ctx.lineTo(w - margin - cornerSize, h - margin); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(margin, margin + cornerSize); ctx.lineTo(margin, h - margin - cornerSize); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(w - margin, margin + cornerSize); ctx.lineTo(w - margin, h - margin - cornerSize); ctx.stroke();
+
+                var goldMargin = margin + gap;
+                ctx.strokeStyle = goldGrad; ctx.lineWidth = goldWidth;
+                ctx.beginPath(); ctx.moveTo(goldMargin + cornerSize, goldMargin); ctx.lineTo(w - goldMargin - cornerSize, goldMargin); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(goldMargin + cornerSize, h - goldMargin); ctx.lineTo(w - goldMargin - cornerSize, h - goldMargin); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(goldMargin, goldMargin + cornerSize); ctx.lineTo(goldMargin, h - goldMargin - cornerSize); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(w - goldMargin, goldMargin + cornerSize); ctx.lineTo(w - goldMargin, h - goldMargin - cornerSize); ctx.stroke();
+
+                function drawCorner(cx, cy, rot) {
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot * Math.PI / 180);
+                    ctx.strokeStyle = snnCertConfig.accentBlue; ctx.lineWidth = blueWidth;
+                    ctx.beginPath(); ctx.moveTo(0, cornerSize); ctx.lineTo(0, 0); ctx.lineTo(cornerSize, 0); ctx.stroke();
+                    ctx.strokeStyle = goldGrad; ctx.lineWidth = goldWidth;
+                    ctx.beginPath(); ctx.moveTo(gap, gap + cornerSize);
+                    ctx.quadraticCurveTo(gap + 60, gap + 60, gap + cornerSize, gap);
+                    ctx.stroke();
+                    var diamondSize = 28, diamondCenter = gap + 15;
+                    ctx.translate(diamondCenter, diamondCenter); ctx.rotate(45 * Math.PI / 180);
+                    ctx.fillStyle = snnCertConfig.accentBlue;
+                    ctx.beginPath(); ctx.rect(-diamondSize / 2, -diamondSize / 2, diamondSize, diamondSize); ctx.fill();
+                    ctx.strokeStyle = goldGrad; ctx.lineWidth = 3; ctx.stroke();
+                    ctx.restore();
+                }
+                drawCorner(margin, margin, 0);
+                drawCorner(w - margin, margin, 90);
+                drawCorner(w - margin, h - margin, 180);
+                drawCorner(margin, h - margin, 270);
+            }
+
+            function drawPremiumBadge(ctx, x, y) {
+                ctx.save(); ctx.translate(x, y); ctx.scale(1.2, 1.2);
+                var gold = getGoldGrad(ctx, -80, -80, 160, 160);
+                ctx.save(); ctx.translate(0, 55); ctx.fillStyle = snnCertConfig.accentBlue; ctx.strokeStyle = gold; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-55, 110); ctx.lineTo(-28, 90); ctx.lineTo(0, 110); ctx.lineTo(0, 0); ctx.fill(); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(40, 0);  ctx.lineTo(55, 110);  ctx.lineTo(28, 90);  ctx.lineTo(0, 110); ctx.lineTo(0, 0); ctx.fill(); ctx.stroke();
+                ctx.restore();
+                ctx.beginPath(); ctx.arc(0, 0, 75, 0, Math.PI * 2); ctx.fillStyle = gold; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, 68, 0, Math.PI * 2); ctx.fillStyle = snnCertConfig.accentBlue; ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, 56, 0, Math.PI * 2); ctx.strokeStyle = gold; ctx.lineWidth = 3; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#FFFFFF'; ctx.font = '700 11px "Montserrat"'; ctx.fillText('SNN.ACADEMY', 0, -20);
+                ctx.fillStyle = gold;     ctx.font = '900 15px "Cinzel"';      ctx.fillText('COMPLETED', 0, 5);
+                ctx.fillStyle = '#FFFFFF'; ctx.font = '24px "Cinzel"';          ctx.fillText('\u2605', 0, 42);
+                ctx.restore();
+            }
+
+            function drawCertificate() {
+                certificateCanvas = document.createElement('canvas');
+                certificateCanvas.width  = snnCertConfig.canvasWidth;
+                certificateCanvas.height = snnCertConfig.canvasHeight;
+                var ctx = certificateCanvas.getContext('2d');
+                var w = snnCertConfig.canvasWidth, h = snnCertConfig.canvasHeight;
+
+                ctx.fillStyle = snnCertConfig.lightGray; ctx.fillRect(0, 0, w, h);
+                ctx.save(); ctx.strokeStyle = 'rgba(0,0,0,0.03)'; ctx.lineWidth = 1;
+                for (var i = -h; i < w; i += 15) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + h, h); ctx.stroke(); }
+                ctx.restore();
+
+                drawSeamlessBorder(ctx, w, h);
+                drawPremiumBadge(ctx, 220, 180);
+
+                var centerX = w / 2;
+                ctx.textAlign = 'center';
+                ctx.fillStyle = getGoldGrad(ctx, centerX - 400, 170, 800, 0);
+                ctx.font = '700 120px "Cinzel"'; ctx.fillText('CERTIFICATE', centerX, 200);
+                ctx.font = '300 32px "Cinzel"'; ctx.fillStyle = snnCertConfig.darkBlue; ctx.fillText('OF COMPLETION', centerX, 260);
+                ctx.beginPath(); ctx.moveTo(centerX - 100, 290); ctx.lineTo(centerX + 100, 290);
+                ctx.strokeStyle = getGoldGrad(ctx, centerX - 100, 290, 200, 0); ctx.lineWidth = 3; ctx.stroke();
+
+                ctx.font = '500 26px "Montserrat"'; ctx.fillStyle = snnCertConfig.textGray;
+                ctx.fillText('This is proudly presented to', centerX, 410);
+
+                ctx.font = '400 130px "Great Vibes"'; ctx.fillStyle = snnCertConfig.accentBlue;
+                ctx.fillText(certificateData.userName, centerX, 540);
+
+                ctx.font = '500 26px "Montserrat"'; ctx.fillStyle = snnCertConfig.textGray;
+                ctx.fillText('For successfully completing the prescribed course of study in', centerX, 660);
+
+                ctx.fillStyle = snnCertConfig.darkBlue;
+                drawFittedText(ctx, certificateData.courseName.toUpperCase(), centerX, 730, 1300, 'Cinzel', '700', 60, 30);
+
+                var bottomY = 940;
+                ctx.fillStyle = snnCertConfig.darkBlue; ctx.font = '400 50px "Great Vibes"';
+                ctx.fillText(certificateData.completionDate || new Date().toLocaleDateString(), centerX - 350, bottomY);
+                ctx.beginPath(); ctx.moveTo(centerX - 500, bottomY + 15); ctx.lineTo(centerX - 200, bottomY + 15);
+                ctx.strokeStyle = snnCertConfig.accentBlue; ctx.lineWidth = 2; ctx.stroke();
+                ctx.font = '700 16px "Cinzel"'; ctx.fillText('DATE', centerX - 350, bottomY + 45);
+
+                ctx.font = '400 50px "Great Vibes"'; ctx.fillText('Sinan Isler', centerX + 350, bottomY);
+                ctx.beginPath(); ctx.moveTo(centerX + 200, bottomY + 15); ctx.lineTo(centerX + 500, bottomY + 15); ctx.stroke();
+                ctx.font = '700 16px "Cinzel"'; ctx.fillText('SIGNATURE', centerX + 350, bottomY + 45);
+
+                ctx.font = '500 16px "Montserrat"'; ctx.fillStyle = snnCertConfig.textGray;
+                ctx.fillText('Certificate ID: ' + certificateData.certificateId, centerX, 1045);
+
+                var img = document.getElementById('snn-cert-image');
+                img.src = certificateCanvas.toDataURL('image/png');
+                img.style.display = 'block';
+                document.getElementById('snnCertStatusLabel').style.display = 'none';
+
+                var panel = document.getElementById('actionPanel');
+                if (panel) { panel.style.display = 'flex'; updateLinkedinLink(); }
+            }
+
+            window.addEventListener('load', function () {
+                var params = new URLSearchParams(window.location.search);
+                var cid           = params.get('cid');
+                var userNameParam = params.get('user');
+                var uidParam      = params.get('uid');
+
+                Promise.resolve()
+                    .then(function () {
+                        return cid ? getCourseName(cid) : certificateData.courseName;
+                    })
+                    .then(function (name) {
+                        certificateData.courseName = name;
+                        if (userNameParam) {
+                            return decodeURIComponent(userNameParam).replace(/([A-Z])/g, ' $1').trim();
+                        } else if (uidParam) {
+                            return getUserRealName(uidParam);
+                        }
+                        return 'Sinan Isler';
+                    })
+                    .then(function (userName) {
+                        certificateData.userName        = userName;
+                        certificateData.certificateId   = params.get('certificate_id') || String(Math.floor(Math.random() * 100000));
+                        certificateData.completionDate  = params.get('completion_date') || new Date().toLocaleDateString();
+                        return waitForFonts();
+                    })
+                    .then(function () {
+                        drawCertificate();
+                    });
+            });
+        })();
+        </script>
+        <?php
+    }
+
+    return ob_get_clean();
+} );
