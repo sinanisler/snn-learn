@@ -667,6 +667,7 @@ function snn_learn_get_course_id( $post_id = null ) {
 function snn_learn_get_course_lessons( $course_id ) {
     $pt = snn_learn_get( 'course_post_type' );
 
+    // Query 1: get all chapter IDs (direct children of the course)
     $chapters = get_posts( [
         'post_type'      => $pt,
         'post_parent'    => (int) $course_id,
@@ -677,20 +678,35 @@ function snn_learn_get_course_lessons( $course_id ) {
         'fields'         => 'ids',
     ] );
 
-    $lesson_ids = [];
-    foreach ( $chapters as $ch_id ) {
-        $lids = get_posts( [
-            'post_type'      => $pt,
-            'post_parent'    => $ch_id,
-            'posts_per_page' => -1,
-            'orderby'        => 'menu_order',
-            'order'          => 'ASC',
-            'post_status'    => 'publish',
-            'fields'         => 'ids',
-        ] );
-        foreach ( $lids as $lid ) $lesson_ids[] = (int) $lid;
+    if ( empty( $chapters ) ) {
+        return [];
     }
-    return $lesson_ids;
+
+    // Query 2: get ALL lessons for ALL chapters in a single query (eliminates N+1)
+    $all_lessons = get_posts( [
+        'post_type'       => $pt,
+        'post_parent__in' => $chapters,
+        'posts_per_page'  => -1,
+        'orderby'         => 'menu_order',
+        'order'           => 'ASC',
+        'post_status'     => 'publish',
+    ] );
+
+    // Group lessons by their parent chapter
+    $lessons_by_chapter = [];
+    foreach ( $all_lessons as $lesson ) {
+        $lessons_by_chapter[ $lesson->post_parent ][] = (int) $lesson->ID;
+    }
+
+    // Assemble flat ordered list, chapters dictate master order
+    $ordered_lesson_ids = [];
+    foreach ( $chapters as $ch_id ) {
+        if ( isset( $lessons_by_chapter[ $ch_id ] ) ) {
+            $ordered_lesson_ids = array_merge( $ordered_lesson_ids, $lessons_by_chapter[ $ch_id ] );
+        }
+    }
+
+    return $ordered_lesson_ids;
 }
 
 /**
@@ -775,18 +791,6 @@ function snn_learn_maybe_complete_chapter( $user_id, $lesson_id, $course_id, $no
     // Confirm the parent is a chapter (its own parent must be the course)
     $chapter = get_post( $chapter_id );
     if ( ! $chapter || (int) $chapter->post_parent !== (int) $course_id ) return;
-
-    // Get every lesson ID under this chapter
-    $pt          = snn_learn_get( 'course_post_type' );
-    $sibling_ids = get_posts( [
-        'post_type'      => $pt,
-        'post_parent'    => $chapter_id,
-        'posts_per_page' => -1,
-        'post_status'    => 'publish',
-        'fields'         => 'ids',
-    ] );
-
-    if ( empty( $sibling_ids ) ) return;
 
     global $wpdb;
     $t = $wpdb->prefix . 'snn_learn_enrollments';
@@ -1202,7 +1206,7 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
     $user_id    = get_current_user_id();
     $current_id = get_the_ID();
 
-    // Chapters = direct children of the course
+    // Query 1: chapters = direct children of the course
     $chapters = get_posts( [
         'post_type'      => $pt,
         'post_parent'    => $course_id,
@@ -1211,6 +1215,22 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
         'order'          => 'ASC',
         'post_status'    => 'publish',
     ] );
+
+    // Query 2: ALL lessons for ALL chapters in one query (eliminates N+1)
+    $lessons_by_chapter = [];
+    if ( ! empty( $chapters ) ) {
+        $all_lessons = get_posts( [
+            'post_type'       => $pt,
+            'post_parent__in' => wp_list_pluck( $chapters, 'ID' ),
+            'posts_per_page'  => -1,
+            'orderby'         => 'menu_order',
+            'order'           => 'ASC',
+            'post_status'     => 'publish',
+        ] );
+        foreach ( $all_lessons as $l ) {
+            $lessons_by_chapter[ $l->post_parent ][] = $l;
+        }
+    }
 
     // Pre-fetch completed lesson IDs for current user via PHP
     $completed_ids = [];
@@ -1231,15 +1251,7 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
         echo '<div class="snn-chapter">';
         echo '<span class="snn-chapter-title">' . esc_html( $ch->post_title ) . '</span>';
 
-        // Lessons = children of the chapter
-        $lessons = get_posts( [
-            'post_type'      => $pt,
-            'post_parent'    => $ch->ID,
-            'posts_per_page' => -1,
-            'orderby'        => 'menu_order',
-            'order'          => 'ASC',
-            'post_status'    => 'publish',
-        ] );
+        $lessons = $lessons_by_chapter[ $ch->ID ] ?? [];
 
         if ( $lessons ) {
             echo '<ul class="snn-lessons-list">';
