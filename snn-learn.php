@@ -1183,14 +1183,20 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
 // [snn_learn_progress]
 // ----------------------------------------------------------
 add_shortcode( 'snn_learn_progress', function ( $atts ) {
-    $atts    = shortcode_atts( [ 'course_id' => 0 ], $atts );
+    $atts    = shortcode_atts( [ 'course_id' => 0, 'output' => '' ], $atts );
     $user_id = get_current_user_id();
-    if ( ! $user_id ) return '0';
+    if ( ! $user_id ) return $atts['output'] === 'bool' ? 'false' : '0';
 
     $course_id = (int) $atts['course_id'] ?: snn_learn_get_course_id();
-    if ( ! $course_id ) return '0';
+    if ( ! $course_id ) return $atts['output'] === 'bool' ? 'false' : '0';
 
-    return (string) snn_learn_calc_progress( $user_id, $course_id );
+    $progress = snn_learn_calc_progress( $user_id, $course_id );
+
+    if ( $atts['output'] === 'bool' ) {
+        return $progress > 1 ? 'true' : 'false';
+    }
+
+    return (string) $progress;
 } );
 
 // ----------------------------------------------------------
