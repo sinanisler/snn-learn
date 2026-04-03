@@ -689,7 +689,7 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
         text-align: center; margin-top: 50px;
     }
     @keyframes snnCertPulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-    .snn-cert-font-preloader { position: absolute; left: -9999px; font-size: 0; }
+    .snn-cert-font-preloader { position: absolute; left: -9999px; opacity: 0; pointer-events: none; font-size: 12px; }
     .snn-cert-btn-group { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; margin-top: 20px; }
     .premium-btn {
         background: #141E30; color: white; border: 2px solid #BF953F; text-align: center;
