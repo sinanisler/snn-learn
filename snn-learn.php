@@ -1529,7 +1529,7 @@ add_shortcode( 'snn_learn_comment_list', function ( $atts ) {
 .snn-cl-item{display:flex;align-items:flex-start;padding:20px 0;border-bottom:1px solid #f0f0f0}
 .snn-cl-item:last-child{border-bottom:0}
 .snn-cl-col-author{flex:0 0 <?php echo esc_attr( $author_col ); ?>px;text-align:center;padding-right:16px}
-.snn-cl-avatar{width:<?php echo esc_attr( $avatar ); ?>px;height:<?php echo esc_attr( $avatar ); ?>px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-weight:700;font-size:<?php echo esc_attr( $font_size ); ?>px;line-height:1}
+.snn-cl-avatar{width:<?php echo esc_attr( $avatar ); ?>px;height:<?php echo esc_attr( $avatar ); ?>px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto;background:lightgray;color:#fff;font-weight:700;font-size:<?php echo esc_attr( $font_size ); ?>px;line-height:1}
 .snn-cl-meta{font-size:11px;color:#aaa;margin-top:6px;line-height:1.5}
 .snn-cl-col-body{flex:1;min-width:0}
 .snn-cl-bubble{background:#f7f8fa;padding:14px 16px;border-radius:10px}
@@ -1537,7 +1537,7 @@ add_shortcode( 'snn_learn_comment_list', function ( $atts ) {
 .snn-cl-text p{margin:0 0 .5em}
 .snn-cl-text blockquote{font-family:inherit;font-size:inherit;margin:8px 0;padding-left:12px;border-left:3px solid #e0e0e0;color:#666}
 .snn-cl-rating{margin-top:8px;font-size:18px;line-height:1}
-.snn-cl-star-on{color:#f5a623}
+.snn-cl-star-on{color:#0556c7}
 .snn-cl-star-off{color:#ddd}
 .snn-cl-mod-notice{background:#fff8e1;color:#856404;padding:12px 16px;border-radius:8px;margin-bottom:18px;border:1px solid #ffe082;font-size:14px;font-weight:600}
 .snn-cl-unapp .snn-cl-bubble{border:2px dashed #ffe082}
