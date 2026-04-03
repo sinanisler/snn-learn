@@ -633,27 +633,13 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
     $show_button = filter_var( $atts['button'], FILTER_VALIDATE_BOOLEAN );
     $assets_url  = plugins_url( 'assets/', __FILE__ );
 
-    // Inject @font-face into <head> exactly like Google Fonts does, with font-display:swap
-    add_action( 'wp_head', function () use ( $assets_url ) {
-        static $printed = false;
-        if ( $printed ) return;
-        $printed = true;
-        ?>
-        <style id="snn-cert-fonts">
-        @font-face { font-family: 'Cinzel';      font-style: normal; font-weight: 400; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-400.woff2' ); ?>') format('woff2'); }
-        @font-face { font-family: 'Cinzel';      font-style: normal; font-weight: 700; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-700.woff2' ); ?>') format('woff2'); }
-        @font-face { font-family: 'Cinzel';      font-style: normal; font-weight: 900; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-900.woff2' ); ?>') format('woff2'); }
-        @font-face { font-family: 'Great Vibes'; font-style: normal; font-weight: 400; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'great-vibes-normal-400.woff2' ); ?>') format('woff2'); }
-        @font-face { font-family: 'Montserrat';  font-style: normal; font-weight: 300; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-300.woff2' ); ?>') format('woff2'); }
-        @font-face { font-family: 'Montserrat';  font-style: normal; font-weight: 500; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-500.woff2' ); ?>') format('woff2'); }
-        @font-face { font-family: 'Montserrat';  font-style: normal; font-weight: 700; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-700.woff2' ); ?>') format('woff2'); }
-        </style>
-        <?php
-    }, 1 );
+    $font_css_url = home_url( '/?getfonts=snn-cert' );
 
     ob_start();
 
     ?>
+    <link rel="preconnect" href="<?php echo esc_url( home_url( '/' ) ); ?>">
+    <link rel="stylesheet" href="<?php echo esc_url( $font_css_url ); ?>">
     <style>
     #snn-cert-image {
         max-width: 100%; height: auto; box-shadow: 0 30px 60px rgba(0,0,0,0.5);
