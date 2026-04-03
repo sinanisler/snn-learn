@@ -985,3 +985,151 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
 
     return ob_get_clean();
 } );
+
+// ============================================================
+// SHORTCODES ADMIN PAGE
+// ============================================================
+
+function snn_learn_shortcodes_page() {
+    $shortcodes = [
+        [
+            'tag'         => '[snn_learn_video_player]',
+            'description' => 'Renders the native HTML5 video player for the current lesson. Video source is read from the custom field configured in Settings. Tracks watched seconds and fires the REST completion endpoint automatically. Cache-aware: on every page load it performs a fresh lesson-status check via a cache-busting REST request (with a _t=Date.now() timestamp) so the "Completed" badge appears correctly even when a caching plugin such as WP Rocket or Cloudflare serves cached HTML. When completion fires, it dispatches a custom JavaScript event snnLearnProgress on the document — developers can listen to this event to update other parts of the page (e.g. a sidebar progress bar) in real time without a page refresh.',
+            'attributes'  => [],
+        ],
+        [
+            'tag'         => '[snn_learn_progress]',
+            'description' => 'Outputs a plain number (0–100) representing the current user\'s completion percentage for the grandparent course of the current post. Safe to use inside any loop or builder element. Supports an optional output attribute: use output="bool" to receive the string "true" or "false" instead of a number — useful for conditional visibility logic in page builders such as Elementor or Bricks.',
+            'attributes'  => [
+                'course_id' => 'Optional. Manually specify a course ID. Defaults to the grandparent course of the current post.',
+                'output'    => 'Optional. Set to "bool" to return "true" or "false" instead of 0–100. Returns "true" when progress is greater than 1%.',
+            ],
+        ],
+        [
+            'tag'         => '[snn_learn_course_chapter_lesson_list]',
+            'description' => 'Renders the full chapter → lesson navigation list for the current course. Chapters and lessons share one post type — chapters are direct children of the course (no link), lessons are children of chapters (linked). Ordered by menu_order. Completed lessons show a ✓ mark. The link of the lesson currently being viewed receives the CSS class snn-lesson-current, making it easy to style the active item in your sidebar navigation.',
+            'attributes'  => [
+                'course_id' => 'Optional. Override the course ID.',
+            ],
+        ],
+        [
+            'tag'         => '[snn_learn_mark_completed]',
+            'description' => 'Renders a "Mark as Completed" button for doc / article / code-snippet lessons that have no video. On click it calls the REST API to mark the lesson complete and enroll the user in the course. Cache-aware: on every page load it performs a live status check via a cache-busting REST request so the button reflects the correct completed state even when caching plugins serve stale HTML. Also dispatches the snnLearnProgress JavaScript event on completion so other page elements can react immediately.',
+            'attributes'  => [
+                'label'           => 'Button text. Default: "Mark as Completed".',
+                'completed_label' => 'Text shown after completion. Default: "✓ Completed".',
+            ],
+        ],
+        [
+            'tag'         => '[snn_learn_delete_my_data]',
+            'description' => 'Renders a "Delete My Learning Data" button (logged-in users only). On click, after a confirmation dialog, permanently deletes all the current user\'s enrollment and progress records from the database. Useful for GDPR / privacy pages.',
+            'attributes'  => [
+                'label'           => 'Button text. Default: "Delete My Learning Data".',
+                'confirmed_label' => 'Text shown after deletion. Default: "✓ Your data has been deleted.".',
+            ],
+        ],
+        [
+            'tag'         => '[snn_learn_my_courses]',
+            'description' => 'Renders a list of all courses the current logged-in user is enrolled in, with their per-course progress percentage and a link to continue learning.',
+            'attributes'  => [],
+        ],
+        [
+            'tag'         => '[snn_learn_comment_list]',
+            'description' => 'Renders the styled comment list for the current post. Features initials-based avatar circles (first + last name initials), star ratings (stored in comment meta as snn_rating_comment and editable from the WordPress comment edit screen), and a moderation notice shown to users whose comment is awaiting approval.',
+            'attributes'  => [
+                'avatar'            => 'Avatar circle size in pixels. Default: 48.',
+                'order'             => 'Comment sort order. "ASC" (oldest first) or "DESC" (newest first). Default: DESC.',
+                'number'            => 'Limit the number of comments shown. Default: all approved comments.',
+                'show_ratings'      => 'Show or hide the star rating display. Set to "0" to hide. Default: 1 (visible).',
+                'moderation_notice' => 'Custom text shown above a pending comment when the author visits the page via the WordPress moderation link. Default: "Your comment is saved and waiting for approval.".',
+            ],
+        ],
+        [
+            'tag'         => '[snn_learn_user_certificate]',
+            'description' => 'Renders a downloadable completion certificate drawn on a canvas element. On page load it reads cid (course ID), uid or user (learner name), certificate_id, and completion_date from URL query parameters and draws a styled certificate. Actions (Download PNG, Add to LinkedIn, Copy Link) appear below. Use button="true" to render only the action buttons panel without the certificate canvas — useful for placing the actions in a different layout region.',
+            'attributes'  => [
+                'button' => 'Set to "true" to render only the Download / LinkedIn / Copy-Link action buttons (without the certificate canvas). Requires the certificate canvas rendered by the default shortcode to already be on the page. Default: "false".',
+            ],
+        ],
+    ];
+    ?>
+    <div class="snn-learn-shortcodes wrap">
+        <h1>SNN Learn &mdash; Shortcodes</h1>
+        <p class="description" style="margin-bottom:20px">Click any shortcode tag to copy it to your clipboard.</p>
+
+        <?php foreach ( $shortcodes as $sc ) : ?>
+        <div class="snn-shortcode-item" style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px 24px;margin-bottom:14px;max-width:760px">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                <code
+                    class="snn-shortcode-tag"
+                    style="background:#eff6ff;color:#2563eb;padding:6px 14px;border-radius:5px;font-size:14px;cursor:pointer;border:1px solid #bfdbfe;font-family:monospace"
+                    onclick="snnCopyShortcode(this)"
+                    title="Click to copy"
+                ><?= esc_html( $sc['tag'] ) ?></code>
+                <span class="snn-copy-feedback" style="color:#16a34a;font-size:12px;opacity:0;transition:opacity .3s">&#10003; Copied!</span>
+            </div>
+            <p style="margin:0 0 10px;color:#374151;font-size:13px;line-height:1.6"><?= esc_html( $sc['description'] ) ?></p>
+            <?php if ( ! empty( $sc['attributes'] ) ) : ?>
+            <table style="border-collapse:collapse;font-size:12px;width:100%">
+                <thead>
+                    <tr style="text-align:left">
+                        <th style="padding:4px 10px 4px 0;color:#9ca3af;width:180px;border-bottom:1px solid #f3f4f6">Attribute</th>
+                        <th style="padding:4px 0;color:#9ca3af;border-bottom:1px solid #f3f4f6">Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ( $sc['attributes'] as $attr => $desc ) : ?>
+                <tr>
+                    <td style="padding:5px 10px 5px 0;font-family:monospace;color:#7c3aed"><?= esc_html( $attr ) ?></td>
+                    <td style="padding:5px 0;color:#4b5563"><?= esc_html( $desc ) ?></td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+
+        <!-- REST API reference -->
+        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:20px 24px;max-width:760px;margin-top:20px">
+            <h2 style="font-size:14px;font-weight:600;color:#374151;margin:0 0 10px">REST API Endpoints</h2>
+            <table style="border-collapse:collapse;font-size:12px;width:100%">
+                <thead>
+                    <tr style="text-align:left">
+                        <th style="padding:4px 12px 4px 0;color:#9ca3af;border-bottom:1px solid #e5e7eb">Method</th>
+                        <th style="padding:4px 12px 4px 0;color:#9ca3af;border-bottom:1px solid #e5e7eb">Endpoint</th>
+                        <th style="padding:4px 0;color:#9ca3af;border-bottom:1px solid #e5e7eb">Body / Params</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding:6px 12px 6px 0;font-family:monospace;color:#2563eb">POST</td>
+                        <td style="padding:6px 12px 6px 0;font-family:monospace;color:#374151">/wp-json/snn-learn/v1/complete</td>
+                        <td style="padding:6px 0;color:#4b5563">JSON: <code>{ post_id: INT, complete: BOOL }</code> — Nonce via X-WP-Nonce header.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:6px 12px 6px 0;font-family:monospace;color:#2563eb">GET</td>
+                        <td style="padding:6px 12px 6px 0;font-family:monospace;color:#374151">/wp-json/snn-learn/v1/progress</td>
+                        <td style="padding:6px 0;color:#4b5563">Query: <code>?course_id=INT</code> — Returns <code>{ progress: 0-100 }</code>.</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:6px 12px 6px 0;font-family:monospace;color:#dc2626">DELETE</td>
+                        <td style="padding:6px 12px 6px 0;font-family:monospace;color:#374151">/wp-json/snn-learn/v1/my-data</td>
+                        <td style="padding:6px 0;color:#4b5563">No body. Permanently deletes all enrollment rows for the authenticated user. Nonce via X-WP-Nonce header.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+    function snnCopyShortcode(el) {
+        navigator.clipboard.writeText(el.textContent.trim()).then(function () {
+            var msg = el.nextElementSibling;
+            msg.style.opacity = '1';
+            setTimeout(function () { msg.style.opacity = '0'; }, 1600);
+        });
+    }
+    </script>
+    <?php
+}
