@@ -5,7 +5,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // ============================================================
 // BRICKS BUILDER DYNAMIC TAGS
-// Registers {snn_learn_progress} and {snn_learn_progress:bool}
+// Registers {snn_learn_progress}, {snn_learn_progress:bool},
+// and {snn_learn_completed_date}
 // Only loaded when the Bricks theme is active (checked in snn-learn.php).
 // ============================================================
 
@@ -21,6 +22,11 @@ add_filter( 'bricks/dynamic_tags_list', function ( $tags ) {
         'label' => 'Course Progress (bool)',
         'group' => 'SNN Learn',
     ];
+    $tags[] = [
+        'name'  => '{snn_learn_completed_date}',
+        'label' => 'Last Completed Lesson Date',
+        'group' => 'SNN Learn',
+    ];
     return $tags;
 } );
 
@@ -33,6 +39,10 @@ function snn_learn_bricks_render_tag( $tag, $post, $context = 'text' ) {
 
     $clean = str_replace( [ '{', '}' ], '', $tag );
 
+    if ( $clean === 'snn_learn_completed_date' ) {
+        return snn_learn_bricks_get_completed_date( $post );
+    }
+
     if ( $clean !== 'snn_learn_progress' && $clean !== 'snn_learn_progress:bool' ) {
         return $tag;
     }
@@ -44,21 +54,28 @@ function snn_learn_bricks_render_tag( $tag, $post, $context = 'text' ) {
 add_filter( 'bricks/dynamic_data/render_content', 'snn_learn_bricks_render_content', 20, 3 );
 add_filter( 'bricks/frontend/render_data',        'snn_learn_bricks_render_content', 20, 2 );
 function snn_learn_bricks_render_content( $content, $post, $context = 'text' ) {
-    if ( strpos( $content, '{snn_learn_progress' ) === false ) {
+    $has_progress = strpos( $content, '{snn_learn_progress' ) !== false;
+    $has_date     = strpos( $content, '{snn_learn_completed_date}' ) !== false;
+
+    if ( ! $has_progress && ! $has_date ) {
         return $content;
     }
 
-    // Match {snn_learn_progress} and {snn_learn_progress:bool}
-    preg_match_all( '/\{(snn_learn_progress(?::bool)?)\}/', $content, $matches );
+    if ( $has_progress ) {
+        // Match {snn_learn_progress} and {snn_learn_progress:bool}
+        preg_match_all( '/\{(snn_learn_progress(?::bool)?)\}/', $content, $matches );
 
-    if ( empty( $matches[0] ) ) {
-        return $content;
+        if ( ! empty( $matches[0] ) ) {
+            foreach ( $matches[1] as $key => $clean_tag ) {
+                $value   = snn_learn_bricks_get_progress_value( $clean_tag, $post );
+                $content = str_replace( $matches[0][ $key ], $value, $content );
+            }
+        }
     }
 
-    foreach ( $matches[1] as $key => $clean_tag ) {
-        $tag_full = $matches[0][ $key ];
-        $value    = snn_learn_bricks_get_progress_value( $clean_tag, $post );
-        $content  = str_replace( $tag_full, $value, $content );
+    if ( $has_date ) {
+        $value   = snn_learn_bricks_get_completed_date( $post );
+        $content = str_replace( '{snn_learn_completed_date}', $value, $content );
     }
 
     return $content;
@@ -87,4 +104,34 @@ function snn_learn_bricks_get_progress_value( $clean_tag, $post ) {
     }
 
     return (string) $progress;
+}
+
+// Returns the formatted date of the most recently completed lesson for the
+// current user in the current post's course. Returns '' when not applicable.
+function snn_learn_bricks_get_completed_date( $post ) {
+    global $wpdb;
+
+    $user_id = get_current_user_id();
+    if ( ! $user_id ) {
+        return '';
+    }
+
+    $post_id   = is_object( $post ) ? $post->ID : (int) $post;
+    $course_id = snn_learn_get_course_id( $post_id );
+    if ( ! $course_id ) {
+        return '';
+    }
+
+    $t         = $wpdb->prefix . 'snn_learn_enrollments';
+    $timestamp = $wpdb->get_var( $wpdb->prepare(
+        "SELECT MAX(completed_at) FROM $t
+          WHERE user_id = %d AND course_id = %d AND post_id != course_id AND completed_at IS NOT NULL",
+        $user_id, $course_id
+    ) );
+
+    if ( ! $timestamp ) {
+        return '';
+    }
+
+    return date_i18n( get_option( 'date_format' ), (int) $timestamp );
 }
