@@ -6,7 +6,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 // ============================================================
 // BRICKS BUILDER DYNAMIC TAGS
 // Registers {snn_learn_progress}, {snn_learn_progress:bool},
-// and {snn_learn_completed_date}
+// {snn_learn_completed_date}, and
+// {current_user_current_course_certificate_hash}
 // Only loaded when the Bricks theme is active (checked in snn-learn.php).
 // ============================================================
 
@@ -27,6 +28,11 @@ add_filter( 'bricks/dynamic_tags_list', function ( $tags ) {
         'label' => 'Last Completed Lesson Date',
         'group' => 'SNN Learn',
     ];
+    $tags[] = [
+        'name'  => '{current_user_current_course_certificate_hash}',
+        'label' => 'Course Certificate Hash',
+        'group' => 'SNN Learn',
+    ];
     return $tags;
 } );
 
@@ -43,6 +49,10 @@ function snn_learn_bricks_render_tag( $tag, $post, $context = 'text' ) {
         return snn_learn_bricks_get_completed_date( $post );
     }
 
+    if ( $clean === 'current_user_current_course_certificate_hash' ) {
+        return snn_learn_bricks_get_certificate_hash( $post );
+    }
+
     if ( $clean !== 'snn_learn_progress' && $clean !== 'snn_learn_progress:bool' ) {
         return $tag;
     }
@@ -56,8 +66,9 @@ add_filter( 'bricks/frontend/render_data',        'snn_learn_bricks_render_conte
 function snn_learn_bricks_render_content( $content, $post, $context = 'text' ) {
     $has_progress = strpos( $content, '{snn_learn_progress' ) !== false;
     $has_date     = strpos( $content, '{snn_learn_completed_date}' ) !== false;
+    $has_cert     = strpos( $content, '{current_user_current_course_certificate_hash}' ) !== false;
 
-    if ( ! $has_progress && ! $has_date ) {
+    if ( ! $has_progress && ! $has_date && ! $has_cert ) {
         return $content;
     }
 
@@ -76,6 +87,11 @@ function snn_learn_bricks_render_content( $content, $post, $context = 'text' ) {
     if ( $has_date ) {
         $value   = snn_learn_bricks_get_completed_date( $post );
         $content = str_replace( '{snn_learn_completed_date}', $value, $content );
+    }
+
+    if ( $has_cert ) {
+        $value   = snn_learn_bricks_get_certificate_hash( $post );
+        $content = str_replace( '{current_user_current_course_certificate_hash}', $value, $content );
     }
 
     return $content;
@@ -134,4 +150,34 @@ function snn_learn_bricks_get_completed_date( $post ) {
     }
 
     return date_i18n( get_option( 'date_format' ), (int) $timestamp );
+}
+
+// Returns a deterministic 32-character alphanumeric hash (a-z0-9) seeded by
+// user_id + course_id. Same seed always produces the same hash.
+function snn_learn_bricks_get_certificate_hash( $post ) {
+    $user_id = get_current_user_id();
+    if ( ! $user_id ) {
+        return '';
+    }
+
+    $post_id   = is_object( $post ) ? $post->ID : (int) $post;
+    $course_id = snn_learn_get_course_id( $post_id );
+    if ( ! $course_id ) {
+        return '';
+    }
+
+    $seed = $user_id . '+' . $course_id;
+    $raw  = hash( 'sha256', $seed ); // 64 hex chars (0-9, a-f)
+
+    // Expand character set to a-z0-9 (36 chars) while staying deterministic.
+    // Walk through the raw hex string two hex digits at a time (0-255) and map
+    // each byte value to one of the 36 allowed characters.
+    $chars  = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    $result = '';
+    for ( $i = 0; $i < 32; $i++ ) {
+        $byte    = hexdec( substr( $raw, $i * 2, 2 ) ); // 0-255
+        $result .= $chars[ $byte % 36 ];
+    }
+
+    return $result;
 }
