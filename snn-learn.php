@@ -423,8 +423,9 @@ function snn_learn_settings_page() {
         update_option( 'snn_learn_user_permalink_normal_roles', $normal_roles );
         update_option( 'snn_learn_user_permalink_instr_roles',  $instr_roles );
 
-        // Soft-flush: delete cached rewrite rules so they are regenerated on next frontend request
-        flush_rewrite_rules( false );
+        // Hard-flush: rewrites the rules to the DB and to .htaccess/.nginx conf immediately.
+        // Called on every save so slug/role changes take effect without any extra admin step.
+        flush_rewrite_rules( true );
 
         echo '<div class="notice notice-success is-dismissible"><p><strong>Settings saved.</strong></p></div>';
     }
@@ -524,6 +525,7 @@ function snn_learn_settings_page() {
                             type="text" id="snn_normal_base"
                             name="snn_learn_user_permalink_normal_base"
                             value="<?= esc_attr( snn_learn_get( 'user_permalink_normal_base' ) ) ?>"
+                            style="width:200px"
                             class="small-text" placeholder="user">/42/
                         <p class="description">Default: <code>user</code> &mdash; produces <code>/user/42/</code></p>
                     </td>
@@ -556,7 +558,8 @@ function snn_learn_settings_page() {
                             type="text" id="snn_instr_base"
                             name="snn_learn_user_permalink_instr_base"
                             value="<?= esc_attr( snn_learn_get( 'user_permalink_instr_base' ) ) ?>"
-                            class="small-text" placeholder="instructor">/7/
+                            class="small-text" placeholder="instructor"
+                            style="width:200px">/7/
                         <p class="description">Default: <code>instructor</code> &mdash; produces <code>/instructor/7/</code></p>
                     </td>
                 </tr>
@@ -1880,13 +1883,6 @@ add_action( 'init', function () {
 
     global $wp_rewrite;
     $wp_rewrite->author_base = 'snn-learn-user'; // placeholder — our filter overrides everything
-
-    // Auto-refresh: if the cached rules don't contain our base yet, regenerate at shutdown.
-    $cached      = get_option( 'rewrite_rules' );
-    $normal_base = snn_learn_get( 'user_permalink_normal_base' ) ?: 'user';
-    if ( ! is_array( $cached ) || ! isset( $cached[ $normal_base . '/([0-9]+)/?$' ] ) ) {
-        add_action( 'shutdown', 'flush_rewrite_rules' );
-    }
 }, 1 );
 
 /**
