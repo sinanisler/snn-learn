@@ -633,19 +633,27 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
     $show_button = filter_var( $atts['button'], FILTER_VALIDATE_BOOLEAN );
     $assets_url  = plugins_url( 'assets/', __FILE__ );
 
+    // Inject @font-face into <head> exactly like Google Fonts does, with font-display:swap
+    add_action( 'wp_head', function () use ( $assets_url ) {
+        static $printed = false;
+        if ( $printed ) return;
+        $printed = true;
+        ?>
+        <style id="snn-cert-fonts">
+        @font-face { font-family: 'Cinzel';      font-style: normal; font-weight: 400; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-400.woff2' ); ?>') format('woff2'); }
+        @font-face { font-family: 'Cinzel';      font-style: normal; font-weight: 700; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-700.woff2' ); ?>') format('woff2'); }
+        @font-face { font-family: 'Cinzel';      font-style: normal; font-weight: 900; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-900.woff2' ); ?>') format('woff2'); }
+        @font-face { font-family: 'Great Vibes'; font-style: normal; font-weight: 400; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'great-vibes-normal-400.woff2' ); ?>') format('woff2'); }
+        @font-face { font-family: 'Montserrat';  font-style: normal; font-weight: 300; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-300.woff2' ); ?>') format('woff2'); }
+        @font-face { font-family: 'Montserrat';  font-style: normal; font-weight: 500; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-500.woff2' ); ?>') format('woff2'); }
+        @font-face { font-family: 'Montserrat';  font-style: normal; font-weight: 700; font-display: swap; src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-700.woff2' ); ?>') format('woff2'); }
+        </style>
+        <?php
+    }, 1 );
+
     ob_start();
 
-    <script>
-    var snnCertFontUrls = {
-        cinzel400:      '<?php echo esc_js( $assets_url . 'cinzel-normal-400.woff2' ); ?>',
-        cinzel700:      '<?php echo esc_js( $assets_url . 'cinzel-normal-700.woff2' ); ?>',
-        cinzel900:      '<?php echo esc_js( $assets_url . 'cinzel-normal-900.woff2' ); ?>',
-        greatVibes400:  '<?php echo esc_js( $assets_url . 'great-vibes-normal-400.woff2' ); ?>',
-        montserrat300:  '<?php echo esc_js( $assets_url . 'montserrat-normal-300.woff2' ); ?>',
-        montserrat500:  '<?php echo esc_js( $assets_url . 'montserrat-normal-500.woff2' ); ?>',
-        montserrat700:  '<?php echo esc_js( $assets_url . 'montserrat-normal-700.woff2' ); ?>'
-    };
-    </script>
+    ?>
     <style>
     #snn-cert-image {
         max-width: 100%; height: auto; box-shadow: 0 30px 60px rgba(0,0,0,0.5);
@@ -705,19 +713,9 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
             };
 
             function waitForFonts() {
-                var u = snnCertFontUrls;
-                var faces = [
-                    new FontFace('Cinzel',      'url(' + u.cinzel400     + ')', { weight: '400' }),
-                    new FontFace('Cinzel',      'url(' + u.cinzel700     + ')', { weight: '700' }),
-                    new FontFace('Cinzel',      'url(' + u.cinzel900     + ')', { weight: '900' }),
-                    new FontFace('Great Vibes', 'url(' + u.greatVibes400 + ')', { weight: '400' }),
-                    new FontFace('Montserrat',  'url(' + u.montserrat300 + ')', { weight: '300' }),
-                    new FontFace('Montserrat',  'url(' + u.montserrat500 + ')', { weight: '500' }),
-                    new FontFace('Montserrat',  'url(' + u.montserrat700 + ')', { weight: '700' }),
-                ];
-                return Promise.all(faces.map(function (f) {
-                    return f.load().then(function (loaded) { document.fonts.add(loaded); });
-                }));
+                return document.fonts.ready.then(function () {
+                    return new Promise(function (resolve) { setTimeout(resolve, 100); });
+                });
             }
 
             window.downloadCertificate = function () {
