@@ -57,13 +57,19 @@ add_action( 'plugins_loaded', function () {
 
 function snn_learn_defaults() {
     return [
-        'course_post_type'       => 'course',
-        'video_field'            => 'video_url',
-        'video_color_primary'    => '#3b82f6',
-        'video_color_bg'         => '#1e293b',
-        'video_color_text'       => '#f8fafc',
-        'video_complete_seconds' => 1,
-        'video_complete_on_end'  => 0,
+        'course_post_type'            => 'course',
+        'video_field'                 => 'video_url',
+        'video_color_primary'         => '#3b82f6',
+        'video_color_bg'              => '#1e293b',
+        'video_color_text'            => '#f8fafc',
+        'video_complete_seconds'      => 1,
+        'video_complete_on_end'       => 0,
+        // User Permalinks
+        'user_permalinks_enabled'     => 0,
+        'user_permalink_normal_base'  => 'user',
+        'user_permalink_instr_base'   => 'instructor',
+        'user_permalink_normal_roles' => [ 'subscriber' ],
+        'user_permalink_instr_roles'  => [ 'instructor' ],
     ];
 }
 
@@ -399,6 +405,27 @@ function snn_learn_settings_page() {
         }
         // Checkbox
         update_option( 'snn_learn_video_complete_on_end', isset( $_POST['snn_learn_video_complete_on_end'] ) ? 1 : 0 );
+
+        // ---- User Permalinks ----
+        update_option( 'snn_learn_user_permalinks_enabled', isset( $_POST['snn_learn_user_permalinks_enabled'] ) ? 1 : 0 );
+
+        $normal_base = sanitize_title( wp_unslash( $_POST['snn_learn_user_permalink_normal_base'] ?? '' ) );
+        $instr_base  = sanitize_title( wp_unslash( $_POST['snn_learn_user_permalink_instr_base']  ?? '' ) );
+        update_option( 'snn_learn_user_permalink_normal_base', $normal_base ?: 'user' );
+        update_option( 'snn_learn_user_permalink_instr_base',  $instr_base  ?: 'instructor' );
+
+        $normal_roles = isset( $_POST['snn_learn_user_permalink_normal_roles'] )
+            ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['snn_learn_user_permalink_normal_roles'] ) )
+            : [];
+        $instr_roles  = isset( $_POST['snn_learn_user_permalink_instr_roles'] )
+            ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['snn_learn_user_permalink_instr_roles'] ) )
+            : [];
+        update_option( 'snn_learn_user_permalink_normal_roles', $normal_roles );
+        update_option( 'snn_learn_user_permalink_instr_roles',  $instr_roles );
+
+        // Soft-flush: delete cached rewrite rules so they are regenerated on next frontend request
+        flush_rewrite_rules( false );
+
         echo '<div class="notice notice-success is-dismissible"><p><strong>Settings saved.</strong></p></div>';
     }
     ?>
@@ -463,6 +490,101 @@ function snn_learn_settings_page() {
                 </tr>
 
             </table>
+
+            <!-- ===== User Permalinks Section ===== -->
+            <hr style="margin:32px 0 24px;border-color:#e5e7eb">
+            <h2 style="font-size:15px;font-weight:700;color:#111827;margin:0 0 4px">User Permalinks</h2>
+            <p style="color:#6b7280;font-size:13px;margin:0 0 20px">
+                Replace the default <code>/author/username/</code> URLs with role-based, ID-driven URLs &mdash;
+                e.g. <code>/user/42/</code> for normal users or <code>/instructor/7/</code> for instructors.
+                User IDs are used instead of usernames for privacy.
+            </p>
+
+            <table class="form-table" role="presentation">
+
+                <tr>
+                    <th scope="row">Enable User Permalinks</th>
+                    <td>
+                        <label>
+                            <input type="checkbox" name="snn_learn_user_permalinks_enabled" value="1"
+                                <?= checked( 1, snn_learn_get( 'user_permalinks_enabled' ), false ) ?>>
+                            Enable role-based, ID-driven author archive URLs.
+                        </label>
+                        <p class="description" style="margin-top:6px">
+                            After saving, the plugin automatically refreshes rewrite rules on the next page load.
+                            If URLs still don't work, visit <strong>Settings &rarr; Permalinks</strong> and click <strong>Save Changes</strong>.
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row"><label for="snn_normal_base">Normal User URL Base</label></th>
+                    <td>
+                        <span style="color:#6b7280"><?= esc_html( rtrim( home_url('/'), '/' ) ) ?>/</span><input
+                            type="text" id="snn_normal_base"
+                            name="snn_learn_user_permalink_normal_base"
+                            value="<?= esc_attr( snn_learn_get( 'user_permalink_normal_base' ) ) ?>"
+                            class="small-text" placeholder="user">/42/
+                        <p class="description">Default: <code>user</code> &mdash; produces <code>/user/42/</code></p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row">Normal User Roles</th>
+                    <td>
+                        <?php
+                        $snn_all_roles    = wp_roles()->get_names();
+                        $snn_saved_normal = (array) snn_learn_get( 'user_permalink_normal_roles' );
+                        foreach ( $snn_all_roles as $snn_role_key => $snn_role_name ) :
+                        ?>
+                        <label style="display:inline-flex;align-items:center;gap:5px;margin-right:16px;margin-bottom:6px">
+                            <input type="checkbox"
+                                name="snn_learn_user_permalink_normal_roles[]"
+                                value="<?= esc_attr( $snn_role_key ) ?>"
+                                <?= in_array( $snn_role_key, $snn_saved_normal, true ) ? 'checked' : '' ?>>
+                            <?= esc_html( translate_user_role( $snn_role_name ) ) ?>
+                        </label>
+                        <?php endforeach; ?>
+                        <p class="description" style="margin-top:6px">Users with any selected role will use the <em>Normal User URL Base</em>.</p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row"><label for="snn_instr_base">Instructor URL Base</label></th>
+                    <td>
+                        <span style="color:#6b7280"><?= esc_html( rtrim( home_url('/'), '/' ) ) ?>/</span><input
+                            type="text" id="snn_instr_base"
+                            name="snn_learn_user_permalink_instr_base"
+                            value="<?= esc_attr( snn_learn_get( 'user_permalink_instr_base' ) ) ?>"
+                            class="small-text" placeholder="instructor">/7/
+                        <p class="description">Default: <code>instructor</code> &mdash; produces <code>/instructor/7/</code></p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row">Instructor Roles</th>
+                    <td>
+                        <?php
+                        $snn_saved_instr = (array) snn_learn_get( 'user_permalink_instr_roles' );
+                        foreach ( $snn_all_roles as $snn_role_key => $snn_role_name ) :
+                        ?>
+                        <label style="display:inline-flex;align-items:center;gap:5px;margin-right:16px;margin-bottom:6px">
+                            <input type="checkbox"
+                                name="snn_learn_user_permalink_instr_roles[]"
+                                value="<?= esc_attr( $snn_role_key ) ?>"
+                                <?= in_array( $snn_role_key, $snn_saved_instr, true ) ? 'checked' : '' ?>>
+                            <?= esc_html( translate_user_role( $snn_role_name ) ) ?>
+                        </label>
+                        <?php endforeach; ?>
+                        <p class="description" style="margin-top:6px">
+                            Users with any selected role use the <em>Instructor URL Base</em>.
+                            <strong>Instructor is checked first</strong> and takes priority if a user has both role types.
+                        </p>
+                    </td>
+                </tr>
+
+            </table>
+
             <?php submit_button( 'Save Settings' ); ?>
         </form>
 
@@ -1743,6 +1865,127 @@ function snn_learn_save_comment_rating_metabox( $comment_id ) {
     }
 }
 
+// ============================================================
+// 15. USER PERMALINKS
+// ============================================================
+
+/**
+ * Step 1 – Change the global author base to a placeholder so WordPress does
+ * not generate its own /author/slug rules that would conflict with ours.
+ * Also auto-flushes stale rewrite rules once, at shutdown, when our custom
+ * bases are not yet present in the cached rules.
+ */
+add_action( 'init', function () {
+    if ( ! snn_learn_get( 'user_permalinks_enabled' ) ) return;
+
+    global $wp_rewrite;
+    $wp_rewrite->author_base = 'snn-learn-user'; // placeholder — our filter overrides everything
+
+    // Auto-refresh: if the cached rules don't contain our base yet, regenerate at shutdown.
+    $cached      = get_option( 'rewrite_rules' );
+    $normal_base = snn_learn_get( 'user_permalink_normal_base' ) ?: 'user';
+    if ( ! is_array( $cached ) || ! isset( $cached[ $normal_base . '/([0-9]+)/?$' ] ) ) {
+        add_action( 'shutdown', 'flush_rewrite_rules' );
+    }
+}, 1 );
+
+/**
+ * Step 2 – Replace ALL author rewrite rules with our ID-based patterns.
+ * Returning a fresh array (not merging) wipes WordPress defaults, preventing
+ * /author/username from being accessible (duplicate content / username leak).
+ */
+add_filter( 'author_rewrite_rules', function ( $rules ) {
+    if ( ! snn_learn_get( 'user_permalinks_enabled' ) ) return $rules;
+
+    $nb = sanitize_title( snn_learn_get( 'user_permalink_normal_base' ) ) ?: 'user';
+    $ib = sanitize_title( snn_learn_get( 'user_permalink_instr_base' ) )  ?: 'instructor';
+
+    // Build de-duplicated rule set (handles the edge case where both bases are the same)
+    $custom = [
+        $nb . '/([0-9]+)/page/?([0-9]{1,})/?$' => 'index.php?author=$matches[1]&paged=$matches[2]',
+        $nb . '/([0-9]+)/?$'                    => 'index.php?author=$matches[1]',
+    ];
+    if ( $ib !== $nb ) {
+        $custom[ $ib . '/([0-9]+)/page/?([0-9]{1,})/?$' ] = 'index.php?author=$matches[1]&paged=$matches[2]';
+        $custom[ $ib . '/([0-9]+)/?$' ]                   = 'index.php?author=$matches[1]';
+    }
+
+    return $custom;
+} );
+
+/**
+ * Step 3 – Rewrite the outbound author URL based on the user's role.
+ * Fires for get_author_posts_url() and all author archive link helpers.
+ */
+add_filter( 'author_link', function ( $link, $author_id ) {
+    if ( ! snn_learn_get( 'user_permalinks_enabled' ) ) return $link;
+
+    $user = get_userdata( (int) $author_id );
+    if ( ! $user ) return $link;
+
+    $instr_roles   = (array) snn_learn_get( 'user_permalink_instr_roles' );
+    $is_instructor = ! empty( array_intersect( $instr_roles, (array) $user->roles ) );
+
+    $base = $is_instructor
+        ? ( sanitize_title( snn_learn_get( 'user_permalink_instr_base' ) )  ?: 'instructor' )
+        : ( sanitize_title( snn_learn_get( 'user_permalink_normal_base' ) ) ?: 'user' );
+
+    return home_url( '/' . $base . '/' . (int) $author_id . '/' );
+}, 10, 2 );
+
+/**
+ * Step 4 – Traffic controller on every resolved author archive.
+ *  a) No-ops if the request is already on the correct canonical ID-based URL.
+ *  b) Returns 404 when the URL prefix doesn't match the user's role
+ *     (e.g. a subscriber visiting /instructor/42/).
+ *  c) 301-redirects any other path (legacy /author/username, old placeholder
+ *     base, etc.) to the correct canonical URL.
+ */
+add_action( 'template_redirect', function () {
+    if ( ! snn_learn_get( 'user_permalinks_enabled' ) ) return;
+    if ( ! is_author() ) return; // Exit fast on non-author pages
+
+    $author = get_queried_object();
+    if ( ! ( $author instanceof WP_User ) ) return;
+
+    $instr_roles   = (array) snn_learn_get( 'user_permalink_instr_roles' );
+    $is_instructor = ! empty( array_intersect( $instr_roles, (array) $author->roles ) );
+
+    $instr_base  = sanitize_title( snn_learn_get( 'user_permalink_instr_base' ) )  ?: 'instructor';
+    $normal_base = sanitize_title( snn_learn_get( 'user_permalink_normal_base' ) ) ?: 'user';
+
+    $correct_base = $is_instructor ? $instr_base : $normal_base;
+    $correct_url  = home_url( '/' . $correct_base . '/' . (int) $author->ID . '/' );
+
+    // REQUEST_URI is only used for string prefix comparison — never output or used in queries.
+    $req_path = ltrim( (string) ( parse_url( $_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH ) ?: '' ), '/' );
+
+    $on_correct = ( strpos( $req_path, $correct_base . '/' . (int) $author->ID ) === 0 );
+    if ( $on_correct ) return; // Already on the canonical URL — nothing to do
+
+    $on_instr  = ( strpos( $req_path, $instr_base . '/' ) === 0 );
+    $on_normal = ( strpos( $req_path, $normal_base . '/' ) === 0 );
+
+    // Wrong role prefix — serve a 404
+    if ( ( $is_instructor && $on_normal ) || ( ! $is_instructor && $on_instr ) ) {
+        global $wp_query;
+        $wp_query->set_404();
+        status_header( 404 );
+        nocache_headers();
+        return;
+    }
+
+    // Legacy /author/username or any other unrecognised prefix — 301 redirect
+    wp_redirect( $correct_url, 301 );
+    exit;
+}, 1 );
+
+// Flush rewrite rules on plugin activation so our rules are active immediately.
+register_activation_hook( __FILE__, function () {
+    flush_rewrite_rules();
+} );
+
+// ============================================================
 // Shared admin CSS for star colors (column list + metabox)
 add_action( 'admin_head', 'snn_learn_comment_admin_star_css' );
 function snn_learn_comment_admin_star_css() {
