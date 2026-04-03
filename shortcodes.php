@@ -638,8 +638,23 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
     ob_start();
 
     ?>
-    <link rel="preconnect" href="<?php echo esc_url( home_url( '/' ) ); ?>">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'cinzel-normal-400.woff2' ); ?>">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'cinzel-normal-700.woff2' ); ?>">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'cinzel-normal-900.woff2' ); ?>">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'great-vibes-normal-400.woff2' ); ?>">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'montserrat-normal-300.woff2' ); ?>">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'montserrat-normal-500.woff2' ); ?>">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="<?php echo esc_url( $assets_url . 'montserrat-normal-700.woff2' ); ?>">
     <link rel="stylesheet" href="<?php echo esc_url( $font_css_url ); ?>">
+    <div style="position:absolute;left:-9999px;visibility:hidden">
+        <span style="font-family:'Cinzel';font-weight:400">.</span>
+        <span style="font-family:'Cinzel';font-weight:700">.</span>
+        <span style="font-family:'Cinzel';font-weight:900">.</span>
+        <span style="font-family:'Great Vibes';font-weight:400">.</span>
+        <span style="font-family:'Montserrat';font-weight:300">.</span>
+        <span style="font-family:'Montserrat';font-weight:500">.</span>
+        <span style="font-family:'Montserrat';font-weight:700">.</span>
+    </div>
     <style>
     #snn-cert-image {
         max-width: 100%; height: auto; box-shadow: 0 30px 60px rgba(0,0,0,0.5);
@@ -700,7 +715,7 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
 
             function waitForFonts() {
                 return document.fonts.ready.then(function () {
-                    return new Promise(function (resolve) { setTimeout(resolve, 100); });
+                    return new Promise(function (resolve) { setTimeout(resolve, 500); });
                 });
             }
 
