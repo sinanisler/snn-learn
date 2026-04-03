@@ -635,6 +635,82 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
 
     ob_start();
 
+    ?>
+    <style>
+    @font-face {
+        font-family: 'Cinzel';
+        font-style: normal;
+        font-weight: 400;
+        src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-400.woff2' ); ?>') format('woff2');
+    }
+    @font-face {
+        font-family: 'Cinzel';
+        font-style: normal;
+        font-weight: 700;
+        src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-700.woff2' ); ?>') format('woff2');
+    }
+    @font-face {
+        font-family: 'Cinzel';
+        font-style: normal;
+        font-weight: 900;
+        src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-900.woff2' ); ?>') format('woff2');
+    }
+    @font-face {
+        font-family: 'Great Vibes';
+        font-style: normal;
+        font-weight: 400;
+        src: url('<?php echo esc_url( $assets_url . 'great-vibes-normal-400.woff2' ); ?>') format('woff2');
+    }
+    @font-face {
+        font-family: 'Montserrat';
+        font-style: normal;
+        font-weight: 300;
+        src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-300.woff2' ); ?>') format('woff2');
+    }
+    @font-face {
+        font-family: 'Montserrat';
+        font-style: normal;
+        font-weight: 500;
+        src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-500.woff2' ); ?>') format('woff2');
+    }
+    @font-face {
+        font-family: 'Montserrat';
+        font-style: normal;
+        font-weight: 700;
+        src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-700.woff2' ); ?>') format('woff2');
+    }
+    #snn-cert-image {
+        max-width: 100%; height: auto; box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+        border-radius: 8px; display: none; margin: 20px auto;
+    }
+    .snn-cert-loading {
+        color: #BF953F; font-family: 'Cinzel', serif; font-size: 20px;
+        letter-spacing: 2px; animation: snnCertPulse 1.5s infinite;
+        text-align: center; margin-top: 50px;
+    }
+    @keyframes snnCertPulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+    .snn-cert-font-preloader { position: absolute; left: -9999px; font-size: 0; }
+    .snn-cert-btn-group { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; margin-top: 20px; }
+    .premium-btn {
+        background: #141E30; color: white; border: 2px solid #BF953F; text-align: center;
+        padding: 12px 25px; font-family: 'Cinzel', serif; font-weight: 700;
+        text-transform: uppercase; cursor: pointer; transition: 0.3s;
+        text-decoration: none; border-radius: 4px; font-size: 14px; margin-bottom: 5px;
+    }
+    .premium-btn:hover { background: #BF953F; color: #141E30; }
+    </style>
+
+    <div class="snn-cert-font-preloader" aria-hidden="true">
+        <span style="font-family: 'Cinzel'; font-weight: 400;">.</span>
+        <span style="font-family: 'Cinzel'; font-weight: 700;">.</span>
+        <span style="font-family: 'Cinzel'; font-weight: 900;">.</span>
+        <span style="font-family: 'Great Vibes'; font-weight: 400;">.</span>
+        <span style="font-family: 'Montserrat'; font-weight: 300;">.</span>
+        <span style="font-family: 'Montserrat'; font-weight: 500;">.</span>
+        <span style="font-family: 'Montserrat'; font-weight: 700;">.</span>
+    </div>
+    <?php
+
     if ( $show_button ) {
         ?>
         <div class="button-group" id="actionPanel" style="display:none;flex-direction:column;">
@@ -645,79 +721,6 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
         <?php
     } else {
         ?>
-        <style>
-        @font-face {
-            font-family: 'Cinzel';
-            font-style: normal;
-            font-weight: 400;
-            src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-400.woff2' ); ?>') format('woff2');
-        }
-        @font-face {
-            font-family: 'Cinzel';
-            font-style: normal;
-            font-weight: 700;
-            src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-700.woff2' ); ?>') format('woff2');
-        }
-        @font-face {
-            font-family: 'Cinzel';
-            font-style: normal;
-            font-weight: 900;
-            src: url('<?php echo esc_url( $assets_url . 'cinzel-normal-900.woff2' ); ?>') format('woff2');
-        }
-        @font-face {
-            font-family: 'Great Vibes';
-            font-style: normal;
-            font-weight: 400;
-            src: url('<?php echo esc_url( $assets_url . 'great-vibes-normal-400.woff2' ); ?>') format('woff2');
-        }
-        @font-face {
-            font-family: 'Montserrat';
-            font-style: normal;
-            font-weight: 300;
-            src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-300.woff2' ); ?>') format('woff2');
-        }
-        @font-face {
-            font-family: 'Montserrat';
-            font-style: normal;
-            font-weight: 500;
-            src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-500.woff2' ); ?>') format('woff2');
-        }
-        @font-face {
-            font-family: 'Montserrat';
-            font-style: normal;
-            font-weight: 700;
-            src: url('<?php echo esc_url( $assets_url . 'montserrat-normal-700.woff2' ); ?>') format('woff2');
-        }
-        #snn-cert-image {
-            max-width: 100%; height: auto; box-shadow: 0 30px 60px rgba(0,0,0,0.5);
-            border-radius: 8px; display: none; margin: 20px auto;
-        }
-        .snn-cert-loading {
-            color: #BF953F; font-family: 'Cinzel', serif; font-size: 20px;
-            letter-spacing: 2px; animation: snnCertPulse 1.5s infinite;
-            text-align: center; margin-top: 50px;
-        }
-        @keyframes snnCertPulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-        .snn-cert-font-preloader { position: absolute; left: -9999px; visibility: hidden; }
-        .snn-cert-btn-group { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; margin-top: 20px; }
-        .premium-btn {
-            background: #141E30; color: white; border: 2px solid #BF953F; text-align: center;
-            padding: 12px 25px; font-family: 'Cinzel', serif; font-weight: 700;
-            text-transform: uppercase; cursor: pointer; transition: 0.3s;
-            text-decoration: none; border-radius: 4px; font-size: 14px; margin-bottom: 5px;
-        }
-        .premium-btn:hover { background: #BF953F; color: #141E30; }
-        </style>
-
-        <div class="snn-cert-font-preloader" aria-hidden="true">
-            <span style="font-family: 'Cinzel'; font-weight: 400;">.</span>
-            <span style="font-family: 'Cinzel'; font-weight: 700;">.</span>
-            <span style="font-family: 'Cinzel'; font-weight: 900;">.</span>
-            <span style="font-family: 'Great Vibes'; font-weight: 400;">.</span>
-            <span style="font-family: 'Montserrat'; font-weight: 300;">.</span>
-            <span style="font-family: 'Montserrat'; font-weight: 500;">.</span>
-            <span style="font-family: 'Montserrat'; font-weight: 700;">.</span>
-        </div>
 
         <div class="snn-certificate-container">
             <div class="snn-cert-loading" id="snnCertStatusLabel">Forging Certificate...</div>
@@ -745,8 +748,17 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
             };
 
             function waitForFonts() {
-                return document.fonts.ready.then(function () {
-                    return new Promise(function (resolve) { setTimeout(resolve, 500); });
+                var loads = [
+                    document.fonts.load('400 1px "Cinzel"'),
+                    document.fonts.load('700 1px "Cinzel"'),
+                    document.fonts.load('900 1px "Cinzel"'),
+                    document.fonts.load('400 1px "Great Vibes"'),
+                    document.fonts.load('300 1px "Montserrat"'),
+                    document.fonts.load('500 1px "Montserrat"'),
+                    document.fonts.load('700 1px "Montserrat"'),
+                ];
+                return Promise.all(loads).then(function () {
+                    return new Promise(function (resolve) { setTimeout(resolve, 100); });
                 });
             }
 
