@@ -995,6 +995,7 @@ add_filter( 'rest_post_dispatch', function ( $response, $server, $request ) {
 // 10. SHORTCODES
 // ============================================================
 
+require_once plugin_dir_path( __FILE__ ) . 'video-player.php';
 require_once plugin_dir_path( __FILE__ ) . 'shortcodes.php';
 
 // Third-party integrations — only load when the relevant theme/plugin is active
