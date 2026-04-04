@@ -429,6 +429,10 @@ function snn_learn_settings_page() {
         // Called on every save so slug/role changes take effect without any extra admin step.
         flush_rewrite_rules( true );
 
+        if ( class_exists( 'Simple_Page_Ordering' ) ) {
+            Simple_Page_Ordering::handle_settings_save();
+        }
+
         echo '<div class="notice notice-success is-dismissible"><p><strong>Settings saved.</strong></p></div>';
     }
     ?>
@@ -590,7 +594,12 @@ function snn_learn_settings_page() {
 
             </table>
 
-            <?php submit_button( 'Save Settings' ); ?>
+            <?php
+            if ( class_exists( 'Simple_Page_Ordering' ) ) {
+                Simple_Page_Ordering::render_settings_section();
+            }
+            submit_button( 'Save Settings' );
+            ?>
         </form>
 
         <!-- Danger Zone -->

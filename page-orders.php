@@ -27,9 +27,76 @@ class Simple_Page_Ordering {
 		add_action( 'rest_api_init', array( __CLASS__, 'rest_api_init' ) );
 	}
 
+	/**
+	 * Returns the list of post types allowed for ordering, or null if the
+	 * setting has never been saved (meaning: fall back to original logic).
+	 */
+	public static function get_allowed_post_types() {
+		$allowed = get_option( 'spo_allowed_post_types', null );
+		if ( null === $allowed ) {
+			return null; // Not configured yet — use legacy sortable detection.
+		}
+		return (array) $allowed;
+	}
+
 	private static function is_post_type_sortable( $post_type = 'post' ) {
-		$sortable = ( post_type_supports( $post_type, 'page-attributes' ) || is_post_type_hierarchical( $post_type ) );
+		$allowed = self::get_allowed_post_types();
+
+		if ( null !== $allowed ) {
+			$sortable = in_array( $post_type, $allowed, true );
+		} else {
+			$sortable = ( post_type_supports( $post_type, 'page-attributes' ) || is_post_type_hierarchical( $post_type ) );
+		}
+
 		return apply_filters( 'simple_page_ordering_is_sortable', $sortable, $post_type );
+	}
+
+	/**
+	 * Save page-ordering settings from the snn-learn settings form POST.
+	 * Call this inside the existing snn_learn_settings_page() POST handler.
+	 */
+	public static function handle_settings_save() {
+		$raw = isset( $_POST['spo_allowed_post_types'] ) ? (array) wp_unslash( $_POST['spo_allowed_post_types'] ) : array();
+		$public_post_types = array_keys( get_post_types( array( 'public' => true ) ) );
+		$clean = array_values( array_intersect( array_map( 'sanitize_key', $raw ), $public_post_types ) );
+		update_option( 'spo_allowed_post_types', $clean );
+	}
+
+	/**
+	 * Render the post-type checkboxes section.
+	 * Call this inside the existing snn-learn settings <form> before submit_button().
+	 */
+	public static function render_settings_section() {
+		$post_types = get_post_types( array( 'public' => true ), 'objects' );
+		$allowed    = (array) get_option( 'spo_allowed_post_types', array() );
+		?>
+		<hr style="margin:32px 0 24px;border-color:#e5e7eb">
+		<h2 style="font-size:15px;font-weight:700;color:#111827;margin:0 0 4px">Page Ordering</h2>
+		<p style="color:#6b7280;font-size:13px;margin:0 0 20px">
+			Select which post types get drag-and-drop ordering in the admin list view.
+			Only checked types will show the drag handle and the &ldquo;Sort by Order&rdquo; link.
+		</p>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row">Enabled Post Types</th>
+				<td>
+					<?php foreach ( $post_types as $post_type ) : ?>
+						<label style="display:block;margin-bottom:6px;">
+							<input type="checkbox"
+								name="spo_allowed_post_types[]"
+								value="<?php echo esc_attr( $post_type->name ); ?>"
+								<?php checked( in_array( $post_type->name, $allowed, true ) ); ?>>
+							<strong><?php echo esc_html( $post_type->label ); ?></strong>
+							<code style="font-size:11px;color:#666;margin-left:4px;"><?php echo esc_html( $post_type->name ); ?></code>
+						</label>
+					<?php endforeach; ?>
+					<p class="description" style="margin-top:8px;">
+						If nothing is checked, the default behaviour applies (post types that support <code>page-attributes</code> or are hierarchical).
+					</p>
+				</td>
+			</tr>
+		</table>
+		<?php
 	}
 
 	public static function load_edit_screen() {
