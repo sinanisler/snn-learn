@@ -439,6 +439,12 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
                 volBtn.click();
             } else if (e.key === 'f' || e.key === 'F') {
                 fullBtn.click();
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                video.currentTime = Math.max(0, video.currentTime - 10);
             }
         });
 
