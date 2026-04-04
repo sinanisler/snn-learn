@@ -143,24 +143,7 @@ class Simple_Page_Ordering {
 		.spo-updating { opacity: 0.5; pointer-events: none; }
 		.spo-dragging { opacity: 0.5; background: #f0f0f1; }
 		.spo-drag-over {
-			position: relative;
-		}
-		.spo-drag-over::before {
-			content: '';
-			position: absolute;
-			top: -2px;
-			left: 0;
-			right: 0;
-			height: 4px;
-			background: #2271b1;
-			box-shadow: 0 0 8px rgba(34, 113, 177, 0.5);
-			z-index: 999;
-			border-radius: 2px;
-			animation: spo-pulse 0.5s ease-in-out infinite alternate;
-		}
-		@keyframes spo-pulse {
-			from { opacity: 0.7; }
-			to { opacity: 1; }
+			box-shadow: inset 0 3px 0 0 #2271b1;
 		}
 		.wp-list-table tbody tr { cursor: move; }
 		.wp-list-table tbody tr:hover { background: #f6f7f7; }
