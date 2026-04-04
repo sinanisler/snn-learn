@@ -49,6 +49,15 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         display: block;
         cursor : pointer;
     }
+    .snn-video-overlay {
+        position  : absolute;
+        top       : 0;
+        left      : 0;
+        right     : 0;
+        bottom    : 0;
+        z-index   : 1;
+        cursor    : pointer;
+    }
     .snn-video-controls {
         position  : absolute;
         bottom    : 0;
@@ -57,6 +66,7 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         padding   : 8px 12px 10px;
         background: linear-gradient(transparent, var(--vp-bg-fade));
         transition: opacity .3s;
+        z-index   : 2;
     }
     .snn-video-seek {
         width         : 100%;
@@ -201,12 +211,16 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         padding      : 4px 12px;
         font-size    : 12px;
         font-weight  : bold;
+        z-index      : 3;
     }
     </style>
 
     <div id="<?= $uid ?>-wrap" class="snn-video-player-wrap">
 
         <video id="<?= $uid ?>" preload="metadata" playsinline></video>
+
+        <!-- Overlay: blocks native right-click menu & video controls -->
+        <div id="<?= $uid ?>-overlay" class="snn-video-overlay"></div>
 
         <!-- Controls Bar -->
         <div id="<?= $uid ?>-controls" class="snn-video-controls">
@@ -262,6 +276,7 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         var volRange  = document.getElementById('<?= $uid ?>-volrange');
         var speedBtn  = document.getElementById('<?= $uid ?>-speed');
         var speedMenu = document.getElementById('<?= $uid ?>-speedmenu');
+        var overlay   = document.getElementById('<?= $uid ?>-overlay');
 
         var POST_ID      = <?= (int) $post_id ?>;
         var COMP_SEC     = <?= (int) $comp_sec ?>;
@@ -292,8 +307,25 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
 
         // Play / Pause
         function togglePlay() { video.paused ? video.play() : video.pause(); }
+        function toggleFullscreen() { fullBtn.click(); }
         playBtn.addEventListener('click', togglePlay);
-        video.addEventListener('click',  togglePlay);
+
+        // Overlay: single click = play/pause, double click = fullscreen, block right-click
+        var overlayClickTimer = null;
+        overlay.addEventListener('click', function () {
+            if (overlayClickTimer) {
+                clearTimeout(overlayClickTimer);
+                overlayClickTimer = null;
+                toggleFullscreen();
+            } else {
+                overlayClickTimer = setTimeout(function () {
+                    overlayClickTimer = null;
+                    togglePlay();
+                }, 250);
+            }
+        });
+        overlay.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+        video.addEventListener('contextmenu',   function (e) { e.preventDefault(); });
         var SVG_PLAY  = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
         var SVG_PAUSE = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
         var SVG_EXPAND  = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>';
