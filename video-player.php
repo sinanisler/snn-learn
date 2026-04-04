@@ -111,8 +111,8 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         display        : flex;
         align-items    : center;
         justify-content: center;
-        width          : 20px;
-        height         : 20px;
+        width          : 30px;
+        height         : 30px;
     }
     .snn-video-spacer {
         flex: 1;
