@@ -34,31 +34,128 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
 
     ob_start();
     ?>
-    <div id="<?= $uid ?>-wrap" class="snn-video-player-wrap" style="position:relative;width:100%;background:<?= $c_bg ?>;overflow:hidden;user-select:none;font-family:sans-serif">
+    <style>
+    #<?= $uid ?>-wrap {
+        --vp-primary : <?= $c_primary ?>;
+        --vp-bg      : <?= $c_bg ?>;
+        --vp-bg-fade : <?= $c_bg ?>e0;
+        --vp-text    : <?= $c_text ?>;
+    }
+    .snn-video-player-wrap {
+        position   : relative;
+        width      : 100%;
+        background : var(--vp-bg);
+        overflow   : hidden;
+        user-select: none;
+        font-family: sans-serif;
+    }
+    .snn-video-player-wrap video {
+        width  : 100%;
+        display: block;
+        cursor : pointer;
+    }
+    .snn-video-controls {
+        position  : absolute;
+        bottom    : 0;
+        left      : 0;
+        right     : 0;
+        padding   : 8px 12px 10px;
+        background: linear-gradient(transparent, var(--vp-bg-fade));
+        transition: opacity .3s;
+    }
+    .snn-video-seek {
+        width         : 100%;
+        height        : 6px;
+        background    : rgba(255,255,255,0.4);
+        border-radius : 3px;
+        cursor        : pointer;
+        position      : relative;
+        margin-bottom : 8px;
+    }
+    .snn-video-progress {
+        height        : 100%;
+        width         : 0%;
+        background    : var(--vp-primary);
+        border-radius : 3px;
+        pointer-events: none;
+    }
+    .snn-video-seek-thumb {
+        position      : absolute;
+        top           : 50%;
+        left          : 0%;
+        transform     : translate(-50%, -50%);
+        font-size     : 11px;
+        line-height   : 1;
+        pointer-events: none;
+        color         : var(--vp-primary);
+    }
+    .snn-video-btn-row {
+        display    : flex;
+        align-items: center;
+        gap        : 10px;
+    }
+    .snn-video-play-btn,
+    .snn-video-full-btn {
+        background     : none;
+        border         : none;
+        cursor         : pointer;
+        color          : var(--vp-text);
+        padding        : 0;
+        line-height    : 1;
+        display        : flex;
+        align-items    : center;
+        justify-content: center;
+        width          : 20px;
+        height         : 20px;
+    }
+    .snn-video-spacer {
+        flex: 1;
+    }
+    .snn-video-time {
+        font-size           : 12px;
+        color               : var(--vp-text);
+        font-variant-numeric: tabular-nums;
+        min-width           : 92px;
+    }
+    .snn-video-completed-badge {
+        display      : none;
+        position     : absolute;
+        top          : 10px;
+        right        : 10px;
+        background   : var(--vp-primary);
+        color        : var(--vp-text);
+        border-radius: 20px;
+        padding      : 4px 12px;
+        font-size    : 12px;
+        font-weight  : bold;
+    }
+    </style>
 
-        <video id="<?= $uid ?>" preload="metadata" playsinline style="width:100%;display:block;cursor:pointer"></video>
+    <div id="<?= $uid ?>-wrap" class="snn-video-player-wrap">
+
+        <video id="<?= $uid ?>" preload="metadata" playsinline></video>
 
         <!-- Controls Bar -->
-        <div id="<?= $uid ?>-controls" class="snn-video-controls" style="position:absolute;bottom:0;left:0;right:0;padding:8px 12px 10px;background:linear-gradient(transparent,<?= $c_bg ?>e0);transition:opacity .3s">
+        <div id="<?= $uid ?>-controls" class="snn-video-controls">
 
             <!-- Progress / Seek bar -->
-            <div id="<?= $uid ?>-barwrap" class="snn-video-seek" style="width:100%;height:5px;background:rgba(255,255,255,0.2);border-radius:3px;cursor:pointer;position:relative;margin-bottom:8px">
-                <div id="<?= $uid ?>-bar" class="snn-video-progress" style="height:100%;width:0%;background:<?= $c_primary ?>;border-radius:3px;pointer-events:none"></div>
-                <div id="<?= $uid ?>-thumb" class="snn-video-seek-thumb" style="position:absolute;top:50%;transform:translate(-50%,-50%);left:0%;font-size:11px;line-height:1;pointer-events:none;color:<?= $c_primary ?>">&#128280;</div>
+            <div id="<?= $uid ?>-barwrap" class="snn-video-seek">
+                <div id="<?= $uid ?>-bar"   class="snn-video-progress"></div>
+                <div id="<?= $uid ?>-thumb" class="snn-video-seek-thumb">&#128280;</div>
             </div>
 
             <!-- Buttons row -->
-            <div style="display:flex;align-items:center;gap:10px">
-                <button id="<?= $uid ?>-play" class="snn-video-play-btn" style="background:none;border:none;cursor:pointer;color:<?= $c_text ?>;padding:0;line-height:1;display:flex;align-items:center;justify-content:center;width:20px;height:20px" title="Play / Pause"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
-                <span   id="<?= $uid ?>-time" class="snn-video-time"     style="font-size:12px;color:<?= $c_text ?>;font-variant-numeric:tabular-nums;min-width:92px">0:00 / 0:00</span>
-                <div style="flex:1"></div>
-                <button id="<?= $uid ?>-full" class="snn-video-full-btn" style="background:none;border:none;cursor:pointer;color:<?= $c_text ?>;padding:0;line-height:1;display:flex;align-items:center;justify-content:center;width:20px;height:20px" title="Fullscreen"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
+            <div class="snn-video-btn-row">
+                <button id="<?= $uid ?>-play" class="snn-video-play-btn" title="Play / Pause"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+                <span   id="<?= $uid ?>-time" class="snn-video-time">0:00 / 0:00</span>
+                <div class="snn-video-spacer"></div>
+                <button id="<?= $uid ?>-full" class="snn-video-full-btn" title="Fullscreen"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
             </div>
 
         </div>
 
         <!-- Completed badge (always hidden in HTML; JS checks fresh status to defeat page cache) -->
-        <div id="<?= $uid ?>-badge" class="snn-video-completed-badge" style="display:none;position:absolute;top:10px;right:10px;background:<?= $c_primary ?>;color:<?= $c_text ?>;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:bold">&#10003; Completed</div>
+        <div id="<?= $uid ?>-badge" class="snn-video-completed-badge">&#10003; Completed</div>
 
     </div>
 
