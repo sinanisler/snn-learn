@@ -49,10 +49,10 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
 
             <!-- Buttons row -->
             <div style="display:flex;align-items:center;gap:10px">
-                <button id="<?= $uid ?>-play" class="snn-video-play-btn" style="background:none;border:none;cursor:pointer;font-size:20px;color:<?= $c_text ?>;padding:0;line-height:1" title="Play / Pause">&#9654;</button>
+                <button id="<?= $uid ?>-play" class="snn-video-play-btn" style="background:none;border:none;cursor:pointer;color:<?= $c_text ?>;padding:0;line-height:1;display:flex;align-items:center;justify-content:center;width:20px;height:20px" title="Play / Pause"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
                 <span   id="<?= $uid ?>-time" class="snn-video-time"     style="font-size:12px;color:<?= $c_text ?>;font-variant-numeric:tabular-nums;min-width:92px">0:00 / 0:00</span>
                 <div style="flex:1"></div>
-                <button id="<?= $uid ?>-full" class="snn-video-full-btn" style="background:none;border:none;cursor:pointer;font-size:18px;color:<?= $c_text ?>;padding:0;line-height:1" title="Fullscreen">&#9654;&#9654;</button>
+                <button id="<?= $uid ?>-full" class="snn-video-full-btn" style="background:none;border:none;cursor:pointer;color:<?= $c_text ?>;padding:0;line-height:1;display:flex;align-items:center;justify-content:center;width:20px;height:20px" title="Fullscreen"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
             </div>
 
         </div>
@@ -106,10 +106,14 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         function togglePlay() { video.paused ? video.play() : video.pause(); }
         playBtn.addEventListener('click', togglePlay);
         video.addEventListener('click',  togglePlay);
-        video.addEventListener('play',   function () { playBtn.innerHTML = '&#9646;&#9646;'; });
-        video.addEventListener('pause',  function () { playBtn.innerHTML = '&#9654;'; });
+        var SVG_PLAY  = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+        var SVG_PAUSE = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+        var SVG_EXPAND  = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>';
+        var SVG_COMPRESS = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>';
+        video.addEventListener('play',   function () { playBtn.innerHTML = SVG_PAUSE; });
+        video.addEventListener('pause',  function () { playBtn.innerHTML = SVG_PLAY; });
         video.addEventListener('ended',  function () {
-            playBtn.innerHTML = '&#9654;';
+            playBtn.innerHTML = SVG_PLAY;
             if (ON_END && !completed) markComplete();
         });
 
@@ -158,10 +162,10 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         fullBtn.addEventListener('click', function () {
             if (document.fullscreenElement) {
                 document.exitFullscreen();
-                fullBtn.innerHTML = '&#9654;&#9654;';
+                fullBtn.innerHTML = SVG_EXPAND;
             } else {
                 wrap.requestFullscreen();
-                fullBtn.innerHTML = '&#9632;';
+                fullBtn.innerHTML = SVG_COMPRESS;
             }
         });
 
