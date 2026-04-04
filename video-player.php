@@ -427,6 +427,21 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
             }
         });
 
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function (e) {
+            var tag = document.activeElement ? document.activeElement.tagName : '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (!wrap.contains(video)) return;
+            if (e.key === ' ' || e.code === 'Space') {
+                e.preventDefault();
+                togglePlay();
+            } else if (e.key === 'm' || e.key === 'M') {
+                volBtn.click();
+            } else if (e.key === 'f' || e.key === 'F') {
+                fullBtn.click();
+            }
+        });
+
         // Auto-hide controls
         function showControls() {
             controls.style.opacity = '1';
