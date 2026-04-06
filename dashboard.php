@@ -230,9 +230,9 @@ function snn_learn_dashboard_page() {
     $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
     $completion_rate    = (float) $wpdb->get_var( "SELECT (COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) / NULLIF(COUNT(*),0)) * 100 FROM $t WHERE post_id != course_id" );
     $weekly_active      = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= %d", $ts_7_days_ago ) );
-    $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
+    $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE post_id = course_id AND last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
-    $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE completed_at IS NOT NULL" );
+    $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE post_id = course_id AND completed_at IS NOT NULL" );
     // Use integer division instead of FROM_UNIXTIME() — avoids per-row date function overhead.
     // Groups by UTC day boundary; date is formatted in PHP with gmdate().
     $peak_day = $wpdb->get_row( "SELECT (enrolled_at DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt FROM $t GROUP BY day_ts ORDER BY cnt DESC LIMIT 1" );
@@ -268,7 +268,7 @@ function snn_learn_dashboard_page() {
     ) );
 
     // ---- Recent activity feed ----
-    $recent_activity = $wpdb->get_results( "SELECT user_id, course_id, enrolled_at, completed_at FROM $t ORDER BY enrolled_at DESC LIMIT 20" );
+    $recent_activity = $wpdb->get_results( "SELECT user_id, course_id, enrolled_at, completed_at, last_activity_at FROM $t WHERE post_id = course_id ORDER BY last_activity_at DESC LIMIT 20" );
     ?>
     <div class="snn-learn-dashboard">
     <div class="p-6 max-w-screen-xl">
