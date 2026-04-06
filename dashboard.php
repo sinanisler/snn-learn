@@ -230,7 +230,7 @@ function snn_learn_dashboard_page() {
     $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
     $total_lessons_all    = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id" );
     $completed_lessons_all= (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id AND completed_at IS NOT NULL" );
-    $completion_rate      = $total_lessons_all ? round( $completed_lessons_all / $total_lessons_all * 100, 1 ) : 0;
+    $completion_rate      = (float) $wpdb->get_var( "SELECT AVG(user_rate) FROM (SELECT COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) / COUNT(*) * 100 AS user_rate FROM $t WHERE post_id != course_id GROUP BY user_id) AS per_user" );
     $weekly_active      = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= %d", $ts_7_days_ago ) );
     $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE post_id = course_id AND last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
@@ -291,9 +291,9 @@ function snn_learn_dashboard_page() {
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Completion Rate</p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Completion Rate</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $completion_rate, 1 ) ?>%</p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1"><?= number_format( $completed_lessons_all ) ?> / <?= number_format( $total_lessons_all ) ?> lessons &amp; chapters</p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">avg per user &mdash; <?= number_format( $completed_lessons_all ) ?> / <?= number_format( $total_lessons_all ) ?> total</p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
