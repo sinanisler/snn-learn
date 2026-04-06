@@ -128,12 +128,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  *      FROM $t WHERE post_id = course_id AND completed_at IS NOT NULL
  *
  * 9. PEAK ENROLLMENT DAY:
- *      SELECT (enrolled_at DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt
+ *      $offset = wp_timezone()->getOffset(…);
+ *      SELECT ((enrolled_at + $offset) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt
  *      FROM $t WHERE post_id = course_id
  *      GROUP BY day_ts ORDER BY cnt DESC LIMIT 1
- *      — Then in PHP: gmdate('Y-m-d', $row->day_ts)
- *      Using integer division (DIV 86400) avoids per-row FROM_UNIXTIME() and
- *      keeps the query sargable on idx_enrolled_at.
+ *      — Then in PHP: wp_date('Y-m-d', $row->day_ts - $offset)
+ *      The WP timezone offset shifts day boundaries so grouping aligns with the
+ *      site's configured timezone. wp_date() formats in that timezone too.
  *
  * 10. USER PROGRESS FOR A SPECIFIC COURSE:
  *       SELECT post_id FROM $t
@@ -174,6 +175,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  • Always pass timestamps as plain PHP integers (time() arithmetic) in WHERE
  *    clauses — never wrap columns in FROM_UNIXTIME() in WHERE; that prevents
  *    index usage. PHP-side calculation is always preferred.
+ *  • For day-boundary grouping, add the WP UTC offset before DIV 86400 so
+ *    days align with the site timezone. Use wp_date() for display formatting.
  *  • Use $wpdb->prepare() for every query that has user-supplied or dynamic values.
  *  • For N-item IN() clauses, build the placeholders with:
  *      implode(',', array_fill(0, count($ids), '%d'))
@@ -225,6 +228,11 @@ function snn_learn_dashboard_page() {
     $ts_14_days_ago = time() - ( 14 * DAY_IN_SECONDS );
     $ts_7_days_ago  = time() - (  7 * DAY_IN_SECONDS );
 
+    // WordPress timezone offset in seconds — used to shift Unix timestamps
+    // so that day-boundary grouping (DIV 86400) aligns with the site's
+    // configured timezone (Settings → General → Timezone).
+    $wp_utc_offset = (int) wp_timezone()->getOffset( new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) ) );
+
     // ---- KPI Queries ----
     $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t" );
     $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
@@ -242,30 +250,37 @@ function snn_learn_dashboard_page() {
     $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE post_id = course_id AND last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
     $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE post_id = course_id AND completed_at IS NOT NULL" );
-    // Use integer division instead of FROM_UNIXTIME() — avoids per-row date function overhead.
-    // Groups by UTC day boundary; date is formatted in PHP with gmdate().
-    $peak_day = $wpdb->get_row( "SELECT (enrolled_at DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt FROM $t GROUP BY day_ts ORDER BY cnt DESC LIMIT 1" );
+    // Use integer division with WP timezone offset so day boundaries align with
+    // the site's configured timezone, not UTC.
+    $peak_day = $wpdb->get_row( $wpdb->prepare(
+        "SELECT ((enrolled_at + %d) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt FROM $t GROUP BY day_ts ORDER BY cnt DESC LIMIT 1",
+        $wp_utc_offset
+    ) );
     if ( $peak_day ) {
-        $peak_day->date = gmdate( 'Y-m-d', (int) $peak_day->day_ts );
+        $peak_day->date = wp_date( 'Y-m-d', (int) $peak_day->day_ts - $wp_utc_offset );
     }
 
     // ---- Course Enrollment Trend (last 30 days) ----
     // Uses the master course-enrollment row (post_id = course_id) that snn_learn_record_lesson()
-    // inserts when a user first starts a course. This eliminates the expensive subquery +
-    // temporary table that MIN(enrolled_at) GROUP BY previously required.
+    // inserts when a user first starts a course. Day boundaries use the WP timezone offset
+    // so grouping matches the site's configured timezone.
     $trend_rows   = $wpdb->get_results( $wpdb->prepare(
-        "SELECT FROM_UNIXTIME(enrolled_at, '%%Y-%%m-%%d') AS day, COUNT(*) AS cnt
+        "SELECT ((enrolled_at + %d) DIV 86400) AS day_key, COUNT(*) AS cnt
          FROM $t
          WHERE post_id = course_id
            AND enrolled_at >= %d
-         GROUP BY day
-         ORDER BY day DESC
+         GROUP BY day_key
+         ORDER BY day_key DESC
          LIMIT 30",
+        $wp_utc_offset,
         $ts_30_days_ago
     ) );
     $trend_rows   = array_reverse( $trend_rows );
-    $trend_labels = array_column( $trend_rows, 'day' );
-    $trend_data   = array_map( 'intval', array_column( $trend_rows, 'cnt' ) );
+    // Convert day_key back to a readable date in WP timezone.
+    $trend_labels = array_map( function ( $row ) use ( $wp_utc_offset ) {
+        return wp_date( 'Y-m-d', (int) $row->day_key * 86400 - $wp_utc_offset );
+    }, $trend_rows );
+    $trend_data   = array_map( function ( $row ) { return (int) $row->cnt; }, $trend_rows );
 
     // ---- Course performance ----
     $courses_perf = $wpdb->get_results( "SELECT course_id, COUNT(*) AS enrolled, SUM(completed_at IS NOT NULL) AS completed FROM $t GROUP BY course_id ORDER BY enrolled DESC LIMIT 50" );
@@ -439,7 +454,7 @@ function snn_learn_dashboard_page() {
                         <span class="text-gray-400"> <?= $is_done ? 'completed' : 'enrolled in' ?> </span>
                         <span><?= $course_title ? esc_html( $course_title ) : '#' . $a->course_id ?></span>
                     </div>
-                    <span class="snn-feed-time text-xs text-gray-400 shrink-0"><?= human_time_diff( $a->enrolled_at ) ?> ago</span>
+                    <span class="snn-feed-time text-xs text-gray-400 shrink-0"><?= human_time_diff( $a->last_activity_at ) ?> ago</span>
                 </div>
                 <?php endforeach; ?>
                 <?php if ( empty( $recent_activity ) ) : ?>
