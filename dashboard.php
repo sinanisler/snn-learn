@@ -283,7 +283,32 @@ function snn_learn_dashboard_page() {
     $trend_data   = array_map( function ( $row ) { return (int) $row->cnt; }, $trend_rows );
 
     // ---- Course performance ----
-    $courses_perf = $wpdb->get_results( "SELECT course_id, COUNT(*) AS enrolled, SUM(completed_at IS NOT NULL) AS completed FROM $t GROUP BY course_id ORDER BY enrolled DESC LIMIT 50" );
+    // enrolled = distinct users with a course-level enrollment row (post_id = course_id)
+    // completed = total completed lesson/chapter rows (post_id != course_id)
+    // rate = avg snn_learn_calc_progress() per enrolled user — same method as the KPI card
+    $course_perf_base = $wpdb->get_results(
+        "SELECT course_id,
+                COUNT(DISTINCT CASE WHEN post_id = course_id THEN user_id END) AS enrolled,
+                SUM(CASE WHEN post_id != course_id AND completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed
+         FROM $t
+         GROUP BY course_id
+         ORDER BY enrolled DESC
+         LIMIT 50"
+    );
+    $courses_perf = [];
+    foreach ( $course_perf_base as $c ) {
+        $course_id      = (int) $c->course_id;
+        $enrolled_users = $wpdb->get_col( $wpdb->prepare(
+            "SELECT user_id FROM $t WHERE post_id = course_id AND course_id = %d",
+            $course_id
+        ) );
+        $rates = [];
+        foreach ( $enrolled_users as $uid ) {
+            $rates[] = snn_learn_calc_progress( (int) $uid, $course_id );
+        }
+        $c->rate      = $rates ? round( array_sum( $rates ) / count( $rates ), 1 ) : 0;
+        $courses_perf[] = $c;
+    }
 
     // ---- At-risk students ----
     $at_risk = $wpdb->get_results( $wpdb->prepare(
@@ -376,7 +401,7 @@ function snn_learn_dashboard_page() {
                         </thead>
                         <tbody>
                         <?php foreach ( $courses_perf as $c ) :
-                            $rate       = $c->enrolled ? round( $c->completed / $c->enrolled * 100 ) : 0;
+                            $rate       = $c->rate;
                             $title      = get_the_title( $c->course_id );
                             $badge      = $rate >= 70 ? 'bg-green-100 text-green-800' : ( $rate >= 40 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800' );
                             $course_url = get_permalink( $c->course_id );
@@ -391,7 +416,7 @@ function snn_learn_dashboard_page() {
                             </td>
                             <td class="py-2 pr-4"><?= (int) $c->enrolled ?></td>
                             <td class="py-2 pr-4"><?= (int) $c->completed ?></td>
-                            <td class="py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?= $badge ?>"><?= $rate ?>%</span></td>
+                            <td class="py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?= $badge ?>"><?= number_format( $rate, 1 ) ?>%</span></td>
                         </tr>
                         <?php endforeach; ?>
                         <?php if ( empty( $courses_perf ) ) : ?>
