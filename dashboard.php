@@ -230,7 +230,14 @@ function snn_learn_dashboard_page() {
     $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
     $total_lessons_all    = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id" );
     $completed_lessons_all= (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id AND completed_at IS NOT NULL" );
-    $completion_rate      = (float) $wpdb->get_var( "SELECT AVG(user_rate) FROM (SELECT COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END) / COUNT(*) * 100 AS user_rate FROM $t WHERE post_id != course_id GROUP BY user_id) AS per_user" );
+    // Avg completion rate: use snn_learn_calc_progress() per user per course so that
+    // unvisited lessons (which have no DB row) are counted as 0, not ignored.
+    $user_course_pairs = $wpdb->get_results( "SELECT DISTINCT user_id, course_id FROM $t WHERE post_id = course_id" );
+    $progress_rates    = [];
+    foreach ( $user_course_pairs as $pair ) {
+        $progress_rates[] = snn_learn_calc_progress( (int) $pair->user_id, (int) $pair->course_id );
+    }
+    $completion_rate = $progress_rates ? round( array_sum( $progress_rates ) / count( $progress_rates ), 1 ) : 0;
     $weekly_active      = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= %d", $ts_7_days_ago ) );
     $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE post_id = course_id AND last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
