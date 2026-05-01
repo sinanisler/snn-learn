@@ -356,7 +356,7 @@ function snn_learn_dashboard_page() {
     $recent_activity = $wpdb->get_results( "SELECT user_id, course_id, enrolled_at, completed_at, last_activity_at FROM $t WHERE post_id = course_id ORDER BY last_activity_at DESC LIMIT 20" );
     ?>
     <div class="snn-learn-dashboard">
-    <div class="p-6 max-w-screen-xl">
+    <div class="p-6">
 
         <h1 class="text-2xl font-bold text-gray-800 mb-6">SNN Learn &mdash; Dashboard</h1>
 
