@@ -249,17 +249,14 @@ function snn_learn_dashboard_page() {
     );
 
     $all_rates = [];
-    $course_total_counts = [];
     foreach ( $user_course_stats as $stat ) {
         $cid = (int) $stat->course_id;
-        if ( ! isset( $course_total_counts[ $cid ] ) ) {
-            // Fix: Include chapters in the total count for the rate calculation
-            $lessons  = snn_learn_get_course_lessons( $cid );
-            $chapters = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT post_parent FROM wp_posts WHERE ID IN (" . implode(',', array_fill(0, count($lessons), '%d')) . ")", $lessons ) );
-            $course_total_counts[ $cid ] = count( $lessons ) + count( array_unique( array_filter( $chapters ) ) );
-        }
-        $total = $course_total_counts[ $cid ];
-        $all_rates[] = $total > 0 ? ( $stat->done / $total ) * 100 : 0;
+        // Fix: Count ALL post IDs (lessons + chapters) for this course in the DB
+        $total_in_db = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT post_id) FROM $t WHERE course_id = %d AND post_id != course_id",
+            $cid
+        ) );
+        $all_rates[] = $total_in_db > 0 ? ( $stat->done / $total_in_db ) * 100 : 0;
     }
 
     // Account for users who started a course but haven't completed any lessons (0% progress)
@@ -321,19 +318,12 @@ function snn_learn_dashboard_page() {
     $courses_perf = [];
     foreach ( $course_perf_base as $c ) {
         $course_id = (int) $c->course_id;
-        $lessons   = snn_learn_get_course_lessons( $course_id );
         
-        // Get unique chapter IDs for this course to include them in the total count
-        $chapter_ids = [];
-        if ( ! empty( $lessons ) ) {
-            $chapter_ids = $wpdb->get_col( $wpdb->prepare( 
-                "SELECT DISTINCT post_parent FROM $wpdb->posts WHERE ID IN (" . implode(',', array_fill(0, count($lessons), '%d')) . ")", 
-                $lessons 
-            ) );
-            $chapter_ids = array_unique( array_filter( $chapter_ids ) );
-        }
-        
-        $total_items = count( $lessons ) + count( $chapter_ids );
+        // Fix: Count ALL post IDs (lessons + chapters) for this course in the DB
+        $total_items = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT post_id) FROM $t WHERE course_id = %d AND post_id != course_id",
+            $course_id
+        ) );
 
         // Batch progress for this course
         $user_done_counts = $wpdb->get_results( $wpdb->prepare(
