@@ -107,9 +107,10 @@ add_action( 'admin_menu', function () {
 add_action( 'admin_head', function () {
     $screen = get_current_screen();
     if ( ! $screen || strpos( $screen->id, 'snn-learn' ) === false ) return;
+    $js_url = plugin_dir_url( __FILE__ ) . 'assets/js/';
     ?>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="<?= esc_url( $js_url . 'tailwind.min.js' ) ?>"></script>
+    <script src="<?= esc_url( $js_url . 'chart.umd.min.js' ) ?>"></script>
     <style>
         #wpcontent { background: #f1f5f9; }
         .snn-learn-dashboard .wrap,
