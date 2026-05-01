@@ -234,10 +234,13 @@ function snn_learn_dashboard_page() {
     $wp_utc_offset = (int) wp_timezone()->getOffset( new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) ) );
 
     // ---- KPI Queries ----
-    $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t" );
+    $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $wpdb->prefix" . "snn_learn_enrollments" );
     $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
-    $total_lessons_all    = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id" );
-    $completed_lessons_all= (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id AND completed_at IS NOT NULL" );
+
+    // Fix: Total items (Lessons + Chapters) vs Completed items (Lessons + Chapters)
+    // We exclude the course-level row (post_id = course_id) to get the true completion pool.
+    $total_items_all     = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id" );
+    $completed_items_all = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id AND completed_at IS NOT NULL" );
 
     // Optimized Avg completion rate: Batch progress calculations to avoid N+1 queries
     $user_course_stats = $wpdb->get_results(
@@ -246,13 +249,16 @@ function snn_learn_dashboard_page() {
     );
 
     $all_rates = [];
-    $course_lesson_counts = [];
+    $course_total_counts = [];
     foreach ( $user_course_stats as $stat ) {
         $cid = (int) $stat->course_id;
-        if ( ! isset( $course_lesson_counts[ $cid ] ) ) {
-            $course_lesson_counts[ $cid ] = count( snn_learn_get_course_lessons( $cid ) );
+        if ( ! isset( $course_total_counts[ $cid ] ) ) {
+            // Fix: Include chapters in the total count for the rate calculation
+            $lessons  = snn_learn_get_course_lessons( $cid );
+            $chapters = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT post_parent FROM wp_posts WHERE ID IN (" . implode(',', array_fill(0, count($lessons), '%d')) . ")", $lessons ) );
+            $course_total_counts[ $cid ] = count( $lessons ) + count( array_unique( array_filter( $chapters ) ) );
         }
-        $total = $course_lesson_counts[ $cid ];
+        $total = $course_total_counts[ $cid ];
         $all_rates[] = $total > 0 ? ( $stat->done / $total ) * 100 : 0;
     }
 
@@ -315,7 +321,19 @@ function snn_learn_dashboard_page() {
     $courses_perf = [];
     foreach ( $course_perf_base as $c ) {
         $course_id = (int) $c->course_id;
-        $total_lessons = count( snn_learn_get_course_lessons( $course_id ) );
+        $lessons   = snn_learn_get_course_lessons( $course_id );
+        
+        // Get unique chapter IDs for this course to include them in the total count
+        $chapter_ids = [];
+        if ( ! empty( $lessons ) ) {
+            $chapter_ids = $wpdb->get_col( $wpdb->prepare( 
+                "SELECT DISTINCT post_parent FROM $wpdb->posts WHERE ID IN (" . implode(',', array_fill(0, count($lessons), '%d')) . ")", 
+                $lessons 
+            ) );
+            $chapter_ids = array_unique( array_filter( $chapter_ids ) );
+        }
+        
+        $total_items = count( $lessons ) + count( $chapter_ids );
 
         // Batch progress for this course
         $user_done_counts = $wpdb->get_results( $wpdb->prepare(
@@ -326,7 +344,7 @@ function snn_learn_dashboard_page() {
 
         $rates = [];
         foreach ( $user_done_counts as $ud ) {
-            $rates[] = $total_lessons > 0 ? ( $ud->done / $total_lessons ) * 100 : 0;
+            $rates[] = $total_items > 0 ? ( $ud->done / $total_items ) * 100 : 0;
         }
 
         // Fill in 0% for enrolled users with no lesson activity
@@ -368,7 +386,7 @@ function snn_learn_dashboard_page() {
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Completion Rate</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $completion_rate, 1 ) ?>%</p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">avg per user &mdash; <?= number_format( $completed_lessons_all ) ?> / <?= number_format( $total_lessons_all ) ?> total</p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">avg per user &mdash; <?= number_format( $completed_items_all ) ?> / <?= number_format( $total_items_all ) ?> total</p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
