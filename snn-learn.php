@@ -425,6 +425,13 @@ function snn_learn_get_course_id( $post_id = null ) {
  * One post type. Chapters = direct children of the course. Lessons = children of chapters.
  */
 function snn_learn_get_course_lessons( $course_id ) {
+    static $cache = [];
+    $course_id = (int) $course_id;
+
+    if ( isset( $cache[ $course_id ] ) ) {
+        return $cache[ $course_id ];
+    }
+
     $pt = snn_learn_get( 'course_post_type' );
 
     // Query 1: get all chapter IDs (direct children of the course)
@@ -439,6 +446,7 @@ function snn_learn_get_course_lessons( $course_id ) {
     ] );
 
     if ( empty( $chapters ) ) {
+        $cache[ $course_id ] = [];
         return [];
     }
 
@@ -466,6 +474,7 @@ function snn_learn_get_course_lessons( $course_id ) {
         }
     }
 
+    $cache[ $course_id ] = $ordered_lesson_ids;
     return $ordered_lesson_ids;
 }
 

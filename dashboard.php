@@ -238,14 +238,31 @@ function snn_learn_dashboard_page() {
     $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
     $total_lessons_all    = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id" );
     $completed_lessons_all= (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id AND completed_at IS NOT NULL" );
-    // Avg completion rate: use snn_learn_calc_progress() per user per course so that
-    // unvisited lessons (which have no DB row) are counted as 0, not ignored.
-    $user_course_pairs = $wpdb->get_results( "SELECT DISTINCT user_id, course_id FROM $t WHERE post_id = course_id" );
-    $progress_rates    = [];
-    foreach ( $user_course_pairs as $pair ) {
-        $progress_rates[] = snn_learn_calc_progress( (int) $pair->user_id, (int) $pair->course_id );
+
+    // Optimized Avg completion rate: Batch progress calculations to avoid N+1 queries
+    $user_course_stats = $wpdb->get_results(
+        "SELECT course_id, user_id, COUNT(completed_at) as done
+         FROM $t WHERE post_id != course_id GROUP BY course_id, user_id"
+    );
+
+    $all_rates = [];
+    $course_lesson_counts = [];
+    foreach ( $user_course_stats as $stat ) {
+        $cid = (int) $stat->course_id;
+        if ( ! isset( $course_lesson_counts[ $cid ] ) ) {
+            $course_lesson_counts[ $cid ] = count( snn_learn_get_course_lessons( $cid ) );
+        }
+        $total = $course_lesson_counts[ $cid ];
+        $all_rates[] = $total > 0 ? ( $stat->done / $total ) * 100 : 0;
     }
-    $completion_rate = $progress_rates ? round( array_sum( $progress_rates ) / count( $progress_rates ), 1 ) : 0;
+
+    // Account for users who started a course but haven't completed any lessons (0% progress)
+    $total_pairs = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT user_id, course_id) FROM $t WHERE post_id = course_id" );
+    if ( $total_pairs > count( $all_rates ) ) {
+        $all_rates = array_merge( $all_rates, array_fill( 0, $total_pairs - count( $all_rates ), 0 ) );
+    }
+    $completion_rate = $all_rates ? round( array_sum( $all_rates ) / count( $all_rates ), 1 ) : 0;
+
     $weekly_active      = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= %d", $ts_7_days_ago ) );
     $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE post_id = course_id AND last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
     $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
@@ -285,7 +302,7 @@ function snn_learn_dashboard_page() {
     // ---- Course performance ----
     // enrolled = distinct users with a course-level enrollment row (post_id = course_id)
     // completed = total completed lesson/chapter rows (post_id != course_id)
-    // rate = avg snn_learn_calc_progress() per enrolled user — same method as the KPI card
+    // rate = avg progress per enrolled user (batched to avoid N+1)
     $course_perf_base = $wpdb->get_results(
         "SELECT course_id,
                 COUNT(DISTINCT CASE WHEN post_id = course_id THEN user_id END) AS enrolled,
@@ -297,16 +314,27 @@ function snn_learn_dashboard_page() {
     );
     $courses_perf = [];
     foreach ( $course_perf_base as $c ) {
-        $course_id      = (int) $c->course_id;
-        $enrolled_users = $wpdb->get_col( $wpdb->prepare(
-            "SELECT user_id FROM $t WHERE post_id = course_id AND course_id = %d",
+        $course_id = (int) $c->course_id;
+        $total_lessons = count( snn_learn_get_course_lessons( $course_id ) );
+
+        // Batch progress for this course
+        $user_done_counts = $wpdb->get_results( $wpdb->prepare(
+            "SELECT user_id, COUNT(completed_at) as done
+             FROM $t WHERE course_id = %d AND post_id != course_id GROUP BY user_id",
             $course_id
         ) );
+
         $rates = [];
-        foreach ( $enrolled_users as $uid ) {
-            $rates[] = snn_learn_calc_progress( (int) $uid, $course_id );
+        foreach ( $user_done_counts as $ud ) {
+            $rates[] = $total_lessons > 0 ? ( $ud->done / $total_lessons ) * 100 : 0;
         }
-        $c->rate      = $rates ? round( array_sum( $rates ) / count( $rates ), 1 ) : 0;
+
+        // Fill in 0% for enrolled users with no lesson activity
+        if ( count( $rates ) < $c->enrolled ) {
+            $rates = array_merge( $rates, array_fill( 0, (int) $c->enrolled - count( $rates ), 0 ) );
+        }
+
+        $c->rate = $rates ? round( array_sum( $rates ) / count( $rates ), 1 ) : 0;
         $courses_perf[] = $c;
     }
 
