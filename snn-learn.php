@@ -612,10 +612,12 @@ function snn_learn_settings_page() {
 
         // ---- Role pill toggle: clicking label toggles checkbox + style ----
         document.querySelectorAll('.snn-role-pill').forEach(function(label) {
+            var input = label.querySelector('input[type="checkbox"]');
+
             label.addEventListener('click', function(e) {
-                if (e.target.tagName === 'INPUT') return;
-                var input = label.querySelector('input[type="checkbox"]');
-                if (!input) return;
+                if (e.target !== input) return;
+                e.preventDefault();
+                e.stopPropagation();
                 input.checked = !input.checked;
                 var isChecked = input.checked;
                 label.style.color = isChecked ? '#2271b1' : '#6b7280';
@@ -623,8 +625,14 @@ function snn_learn_settings_page() {
                 label.style.fontWeight = isChecked ? '600' : '400';
                 label.style.borderColor = isChecked ? '#2271b1' : '#d1d5db';
             });
+            // Also intercept checkbox click directly to prevent browser's default toggle
+            if (input) {
+                input.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            }
             // Init pill state from pre-checked inputs
-            var input = label.querySelector('input[type="checkbox"]');
             if (input && input.checked) {
                 label.style.color = '#2271b1';
                 label.style.background = 'rgba(34,113,177,0.08)';
