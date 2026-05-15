@@ -415,7 +415,7 @@ add_action( 'add_meta_boxes', function () {
                             ?>
                             <div class="wrap">
                                 <h1><?= esc_html( $field_label ) ?></h1>
-                                <?php if ( isset( $_POST['snn_cpt_opt_save_' . $field_slug] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ?? '' ) ), 'snn_cpt_opt_save_' . $field_slug ) ) ) : ?>
+                                <?php if ( isset( $_POST['snn_cpt_opt_save_' . $field_slug] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ?? '' ) ), 'snn_cpt_opt_save_' . $field_slug ) ) : ?>
                                     <?php
                                     $new_val = sanitize_text_field( wp_unslash( $_POST[ $opt_key ] ?? '' ) );
                                     update_option( $opt_key, $new_val );
