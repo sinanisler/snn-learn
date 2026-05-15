@@ -43,7 +43,7 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         overflow   : hidden;
         user-select: none;
         font-family: sans-serif;
-        lign-content: center;
+        align-content: center;
     }
     .snn-video-player-wrap video {
         width  : 100%;
