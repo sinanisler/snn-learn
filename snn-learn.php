@@ -12,6 +12,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'page-orders.php';
+require_once plugin_dir_path( __FILE__ ) . 'page-cpt-builder.php';
+require_once plugin_dir_path( __FILE__ ) . 'page-courses.php';
 
 // ============================================================
 // 1. DATABASE
@@ -97,6 +99,7 @@ add_action( 'admin_menu', function () {
     add_submenu_page( 'snn-learn', 'SNN Learn Dashboard',  'Dashboard',  'manage_options', 'snn-learn',            'snn_learn_dashboard_page'  );
     add_submenu_page( 'snn-learn', 'Settings',   'Settings',   'manage_options', 'snn-learn-settings',   'snn_learn_settings_page'   );
     add_submenu_page( 'snn-learn', 'Shortcodes', 'Shortcodes', 'manage_options', 'snn-learn-shortcodes', 'snn_learn_shortcodes_page' );
+    add_submenu_page( 'snn-learn', 'CPT Builder', 'CPT Builder', 'manage_options', 'snn-learn-cpt',         'snn_learn_cpt_builder_page' );
     // Note: chapters and lessons share the same post type — depth in hierarchy determines the role.
 } );
 
