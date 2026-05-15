@@ -280,7 +280,7 @@ function snn_learn_settings_page() {
                                 maxlength="7" placeholder="#1e293b"
                                 style="width:100px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-family:monospace;font-size:13px"
                                 class="snn-hex-sync" data-target="snn_vcb">
-                            <span id="snn_vcb_preview" style="width:24px;height:24px;border-radius:50%;background:<?= esc_attr( snn_learn_get( 'video_color_bg' ) ?>;border:2px solid rgba(0,0,0,0.12);display:inline-block"></span>
+                            <span id="snn_vcb_preview" style="width:24px;height:24px;border-radius:50%;background:<?= esc_attr( snn_learn_get( 'video_color_bg' ) ) ?>;border:2px solid rgba(0,0,0,0.12);display:inline-block"></span>
                         </div>
                     </div>
 
@@ -295,7 +295,7 @@ function snn_learn_settings_page() {
                                 maxlength="7" placeholder="#f8fafc"
                                 style="width:100px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-family:monospace;font-size:13px"
                                 class="snn-hex-sync" data-target="snn_vct">
-                            <span id="snn_vct_preview" style="width:24px;height:24px;border-radius:50%;background:<?= esc_attr( snn_learn_get( 'video_color_text' ) ?>;border:2px solid rgba(255,255,255,0.3);display:inline-block"></span>
+                            <span id="snn_vct_preview" style="width:24px;height:24px;border-radius:50%;background:<?= esc_attr( snn_learn_get( 'video_color_text' ) ) ?>;border:2px solid rgba(255,255,255,0.3);display:inline-block"></span>
                         </div>
                     </div>
 
@@ -326,7 +326,7 @@ function snn_learn_settings_page() {
                 <!-- Live Player Preview -->
                 <div style="margin-top:24px;padding-top:20px;border-top:1px solid #f3f4f6">
                     <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em">Live Preview</p>
-                    <div id="snn-player-preview" style="--vp-primary:<?= esc_attr( snn_learn_get( 'video_color_primary' ) ) ?>;--vp-bg:<?= esc_attr( snn_learn_get( 'video_color_bg' ) ) ?>;--vp-text:<?= esc_attr( snn_learn_get( 'video_color_text' ) ?>;border-radius:8px;overflow:hidden;max-width:480px;position:relative;background:var(--vp-bg);aspect-ratio:16/9;display:flex;align-items:center;justify-content:center">
+                    <div id="snn-player-preview" style="--vp-primary:<?= esc_attr( snn_learn_get( 'video_color_primary' ) ) ?>;--vp-bg:<?= esc_attr( snn_learn_get( 'video_color_bg' ) ) ?>;--vp-text:<?= esc_attr( snn_learn_get( 'video_color_text' ) ) ?>;border-radius:8px;overflow:hidden;max-width:480px;position:relative;background:var(--vp-bg);aspect-ratio:16/9;display:flex;align-items:center;justify-content:center">
                         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0.35">
                             <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="var(--vp-text)"><path d="M8 5v14l11-7z"/></svg>
                         </div>
@@ -602,7 +602,7 @@ function snn_learn_settings_page() {
             if (!baseInput || !preview || !urlEl) return;
             var base = baseInput.value.trim() || baseInput.placeholder;
             preview.textContent = base;
-            urlEl.textContent = '<?= esc_js( home_url( '/' ) ?>' + base + '/42/';
+            urlEl.textContent = '<?= esc_js( home_url( '/' ) ) ?>' + base + '/42/';
             urlEl.parentNode.style.color = '#059669';
         }
         var nb = document.getElementById('snn_normal_base');
