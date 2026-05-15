@@ -610,14 +610,19 @@ function snn_learn_settings_page() {
         if (nb) nb.addEventListener('input', function() { updatePreview('snn_normal_base','snn_normal_preview_id','snn_normal_preview_url'); });
         if (ib) ib.addEventListener('input', function() { updatePreview('snn_instr_base','snn_instr_preview_id','snn_instr_preview_url'); });
 
-        // ---- Role pill toggle: clicking label toggles checkbox + style ----
+        // ---- Role pill toggle: clicking pill toggles checkbox + style ----
         document.querySelectorAll('.snn-role-pill').forEach(function(label) {
             var input = label.querySelector('input[type="checkbox"]');
+            if (!input) return;
 
-            label.addEventListener('click', function(e) {
-                if (e.target !== input) return;
+            // Prevent browser's native checkbox toggle on click
+            input.addEventListener('click', function(e) {
                 e.preventDefault();
-                e.stopPropagation();
+            });
+
+            // Handle pill click — toggle our way
+            label.addEventListener('click', function(e) {
+                if (e.target === input) return; // let the blocked input handler deal with it
                 input.checked = !input.checked;
                 var isChecked = input.checked;
                 label.style.color = isChecked ? '#2271b1' : '#6b7280';
@@ -625,15 +630,9 @@ function snn_learn_settings_page() {
                 label.style.fontWeight = isChecked ? '600' : '400';
                 label.style.borderColor = isChecked ? '#2271b1' : '#d1d5db';
             });
-            // Also intercept checkbox click directly to prevent browser's default toggle
-            if (input) {
-                input.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                });
-            }
+
             // Init pill state from pre-checked inputs
-            if (input && input.checked) {
+            if (input.checked) {
                 label.style.color = '#2271b1';
                 label.style.background = 'rgba(34,113,177,0.08)';
                 label.style.fontWeight = '600';
