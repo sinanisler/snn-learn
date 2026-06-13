@@ -12,6 +12,13 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
     $video_field = snn_learn_get( 'video_field' );
     $video_url   = get_post_meta( $post_id, $video_field, true );
 
+    // Defensive: some custom-field plugins store values as arrays.
+    // If we got an array, extract the first string value (handles
+    // ACF file fields, Meta Box groups, etc.).
+    if ( is_array( $video_url ) ) {
+        $video_url = isset( $video_url['url'] ) ? $video_url['url'] : (string) reset( $video_url );
+    }
+
     if ( ! $video_url ) {
         return '<!-- snn_learn_video_player: no video found in field "' . esc_html( $video_field ) . '" -->';
     }
@@ -299,7 +306,7 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         });
 
         // Set src after DOM ready to allow poster placeholder
-        video.src = '<?= esc_js( $video_url ) ?>';
+        video.src = '<?= esc_js( (string) $video_url ) ?>';
 
         function fmt(s) {
             s = Math.floor(s || 0);
