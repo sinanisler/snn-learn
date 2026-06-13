@@ -77,7 +77,22 @@ function snn_learn_defaults() {
 
 function snn_learn_get( $key ) {
     $defaults = snn_learn_defaults();
-    return get_option( 'snn_learn_' . $key, $defaults[ $key ] ?? '' );
+    $default  = $defaults[ $key ] ?? '';
+    $value    = get_option( 'snn_learn_' . $key, null );
+
+    // Option never saved — use default.
+    if ( null === $value ) {
+        return $default;
+    }
+
+    // Option was saved as empty (e.g. saving from a different settings tab
+    // that doesn't include this field) but the default is non-empty.
+    // Fall back to the default to prevent blanking out critical values.
+    if ( $value === '' && $default !== '' ) {
+        return $default;
+    }
+
+    return $value;
 }
 
 // ============================================================
@@ -149,9 +164,14 @@ function snn_learn_settings_page() {
     }
 
     if ( isset( $_POST['snn_learn_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['snn_learn_nonce'] ) ), 'snn_learn_settings_save' ) ) {
+        // Only save video fields when they are actually present in the form
+        // (prevents blanking them out when saving from other tabs like Emails).
         $text_fields = [ 'course_post_type', 'video_field', 'video_color_primary', 'video_color_bg', 'video_color_text', 'video_complete_seconds' ];
         foreach ( $text_fields as $f ) {
-            $val = isset( $_POST[ 'snn_learn_' . $f ] ) ? sanitize_text_field( wp_unslash( $_POST[ 'snn_learn_' . $f ] ) ) : '';
+            if ( ! isset( $_POST[ 'snn_learn_' . $f ] ) ) {
+                continue; // Field not in form — skip, don't blank it
+            }
+            $val = sanitize_text_field( wp_unslash( $_POST[ 'snn_learn_' . $f ] ) );
             update_option( 'snn_learn_' . $f, $val );
         }
         // Checkbox
