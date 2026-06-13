@@ -182,6 +182,9 @@ function snn_learn_settings_page() {
             Simple_Page_Ordering::handle_settings_save();
         }
 
+        // ---- Email Notifications ----
+        snn_learn_emails_save_settings();
+
         echo '<div class="notice notice-success is-dismissible"><p><strong>Settings saved.</strong></p></div>';
     }
     ?>
@@ -195,7 +198,8 @@ function snn_learn_settings_page() {
         <div class="snn-settings-tabs" style="display:flex;gap:0;margin:20px 0 0;border-bottom:2px solid #e5e7eb">
             <?php
             $tabs = [
-                'video'   => 'Video Player',
+                'video'      => 'Video Player',
+                'emails'     => 'Emails',
                 'permalinks' => 'User Permalinks',
                 'ordering'   => 'Page Ordering',
                 'danger'     => 'Danger Zone',
@@ -342,6 +346,18 @@ function snn_learn_settings_page() {
                     </div>
                 </div>
 
+            </div>
+
+            <?php elseif ( $active_tab === 'emails' ) : ?>
+
+            <!-- ===== EMAIL NOTIFICATIONS CARD ===== -->
+            <div class="snn-settings-card" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px 28px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+                <h2 style="margin:0 0 20px;font-size:16px;font-weight:700;color:#111827;border-bottom:1px solid #f3f4f6;padding-bottom:14px">Email Notifications</h2>
+                <p style="margin:0 0 20px;font-size:13px;color:#6b7280;line-height:1.6">
+                    Configure automated emails sent to learners. All notifications are <strong>disabled by default</strong> — enable only the ones you need.
+                    Use merge tags like <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">{{user_name}}</code> to personalise each message.
+                </p>
+                <?php snn_learn_emails_settings_section(); ?>
             </div>
 
             <?php elseif ( $active_tab === 'permalinks' ) : ?>
@@ -838,10 +854,14 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
 
     // 1. Ensure the top-level course enrollment row exists
     if ( $post_id != $course_id ) {
-        $wpdb->query( $wpdb->prepare(
+        $result = $wpdb->query( $wpdb->prepare(
             "INSERT IGNORE INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at) VALUES (%d, %d, %d, %d, %d)",
             (int) $user_id, (int) $course_id, (int) $course_id, $now, $now
         ) );
+        // Fire action only on the very first enrollment in this course
+        if ( $result && $wpdb->rows_affected ) {
+            do_action( 'snn_learn_first_enrollment', (int) $user_id, (int) $course_id );
+        }
     }
 
     // 2. Upsert the lesson row — single round-trip via ON DUPLICATE KEY UPDATE.
@@ -1083,6 +1103,7 @@ add_filter( 'rest_post_dispatch', function ( $response, $server, $request ) {
 
 require_once plugin_dir_path( __FILE__ ) . 'video-player.php';
 require_once plugin_dir_path( __FILE__ ) . 'shortcodes.php';
+require_once plugin_dir_path( __FILE__ ) . 'emails.php';
 
 // Third-party integrations — only load when the relevant theme/plugin is active
 if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() === 'bricks' ) {
