@@ -12,11 +12,15 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
     $video_field = snn_learn_get( 'video_field' );
     $video_url   = get_post_meta( $post_id, $video_field, true );
 
-    // Defensive: some custom-field plugins store values as arrays.
-    // If we got an array, extract the first string value (handles
-    // ACF file fields, Meta Box groups, etc.).
+    // Defensive: some custom-field plugins (ACF, Meta Box) store values as
+    // arrays. Common patterns: ['url' => '...'], or nested like
+    // [0 => ['url' => '...']]. Recursively unwrap until we hit a string.
     if ( is_array( $video_url ) ) {
-        $video_url = isset( $video_url['url'] ) ? $video_url['url'] : (string) reset( $video_url );
+        $video_url = isset( $video_url['url'] ) ? $video_url['url'] : reset( $video_url );
+        if ( is_array( $video_url ) ) {
+            $video_url = isset( $video_url['url'] ) ? $video_url['url'] : (string) reset( $video_url );
+        }
+        $video_url = (string) $video_url;
     }
 
     if ( ! $video_url ) {
