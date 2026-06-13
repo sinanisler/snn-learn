@@ -234,8 +234,8 @@ function snn_learn_dashboard_page() {
     $wp_utc_offset = (int) wp_timezone()->getOffset( new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) ) );
 
     // ---- KPI Queries ----
-    $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $wpdb->prefix" . "snn_learn_enrollments" );
-    $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE enrolled_at >= %d", $ts_30_days_ago ) );
+    $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id = course_id" );
+    $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE post_id = course_id AND enrolled_at >= %d", $ts_30_days_ago ) );
 
     // Fix: Total items (Lessons + Chapters) vs Completed items (Lessons + Chapters)
     // We exclude the course-level row (post_id = course_id) to get the true completion pool.
@@ -250,13 +250,9 @@ function snn_learn_dashboard_page() {
 
     $all_rates = [];
     foreach ( $user_course_stats as $stat ) {
-        $cid = (int) $stat->course_id;
-        // Fix: Count ALL post IDs (lessons + chapters) for this course in the DB
-        $total_in_db = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(DISTINCT post_id) FROM $t WHERE course_id = %d AND post_id != course_id",
-            $cid
-        ) );
-        $all_rates[] = $total_in_db > 0 ? ( $stat->done / $total_in_db ) * 100 : 0;
+        $cid         = (int) $stat->course_id;
+        $total_items = count( snn_learn_get_course_lessons( $cid ) );
+        $all_rates[] = $total_items > 0 ? ( $stat->done / $total_items ) * 100 : 0;
     }
 
     // Account for users who started a course but haven't completed any lessons (0% progress)
@@ -319,11 +315,8 @@ function snn_learn_dashboard_page() {
     foreach ( $course_perf_base as $c ) {
         $course_id = (int) $c->course_id;
         
-        // Fix: Count ALL post IDs (lessons + chapters) for this course in the DB
-        $total_items = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(DISTINCT post_id) FROM $t WHERE course_id = %d AND post_id != course_id",
-            $course_id
-        ) );
+        // Count actual lessons in the course structure (not just what's in the DB)
+        $total_items = count( snn_learn_get_course_lessons( $course_id ) );
 
         // Batch progress for this course
         $user_done_counts = $wpdb->get_results( $wpdb->prepare(
@@ -348,7 +341,7 @@ function snn_learn_dashboard_page() {
 
     // ---- At-risk students ----
     $at_risk = $wpdb->get_results( $wpdb->prepare(
-        "SELECT user_id, course_id, last_activity_at FROM $t WHERE last_activity_at < %d AND completed_at IS NULL ORDER BY last_activity_at ASC LIMIT 20",
+        "SELECT user_id, course_id, last_activity_at FROM $t WHERE post_id = course_id AND last_activity_at < %d AND completed_at IS NULL ORDER BY last_activity_at ASC LIMIT 20",
         $ts_14_days_ago
     ) );
 
@@ -364,7 +357,7 @@ function snn_learn_dashboard_page() {
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Lesson Enrollments</p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Course Enrollments</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $total_enrollments ) ?></p>
             </div>
 

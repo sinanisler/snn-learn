@@ -1089,7 +1089,7 @@ function snn_learn_rest_delete_my_data( WP_REST_Request $request ) {
 
 // Force no-cache headers on all SNN Learn REST responses — prevents Cloudflare / proxy caching
 add_filter( 'rest_post_dispatch', function ( $response, $server, $request ) {
-    if ( strpos( $request->get_route(), '/snn-learn/' ) !== false ) {
+    if ( strpos( $request->get_route(), '/snn-learn/' ) !== false && ! is_wp_error( $response ) ) {
         $response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
         $response->header( 'Pragma', 'no-cache' );
         $response->header( 'Expires', '0' );

@@ -16,7 +16,7 @@ add_shortcode( 'snn_learn_progress', function ( $atts ) {
     $user_id = get_current_user_id();
     if ( ! $user_id ) return $atts['output'] === 'bool' ? 'false' : '0';
 
-    $course_id = (int) $atts['course_id'] ?: snn_learn_get_course_id();
+    $course_id = (int) $atts['course_id'] ?: snn_learn_get_course_id( get_the_ID() );
     if ( ! $course_id ) return $atts['output'] === 'bool' ? 'false' : '0';
 
     $progress = snn_learn_calc_progress( $user_id, $course_id );
@@ -34,12 +34,14 @@ add_shortcode( 'snn_learn_progress', function ( $atts ) {
 add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
     $atts = shortcode_atts( [ 'course_id' => 0 ], $atts );
 
-    $course_id  = (int) $atts['course_id'] ?: snn_learn_get_course_id();
-    if ( ! $course_id ) return '';
+    $current_id = get_the_ID();
+    $course_id  = (int) $atts['course_id'] ?: snn_learn_get_course_id( $current_id );
+    if ( ! $course_id ) {
+        return '<!-- snn_learn_course_chapter_lesson_list: could not resolve course_id (post_id=' . (int) $current_id . ', post_type=' . esc_html( get_post_type( $current_id ) ?: 'none' ) . ', course_post_type_setting=' . esc_html( snn_learn_get( 'course_post_type' ) ) . ') -->';
+    }
 
     $pt         = snn_learn_get( 'course_post_type' );
     $user_id    = get_current_user_id();
-    $current_id = get_the_ID();
 
     // Query 1: chapters = direct children of the course
     $chapters = get_posts( [
