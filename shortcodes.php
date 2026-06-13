@@ -759,8 +759,11 @@ function snn_learn_shortcodes_page() {
     $shortcodes = [
         [
             'tag'         => '[snn_learn_video_player]',
-            'description' => 'Renders the native HTML5 video player for the current lesson. Video source is read from the custom field configured in Settings. Tracks watched seconds and fires the REST completion endpoint automatically. Cache-aware: on every page load it performs a fresh lesson-status check via a cache-busting REST request (with a _t=Date.now() timestamp) so the "Completed" badge appears correctly even when a caching plugin such as WP Rocket or Cloudflare serves cached HTML. When completion fires, it dispatches a custom JavaScript event snnLearnProgress on the document â€” developers can listen to this event to update other parts of the page (e.g. a sidebar progress bar) in real time without a page refresh.',
-            'attributes'  => [],
+            'description' => 'Renders the native HTML5 video player for the current lesson. Video source is read from the custom field configured in Settings. Tracks watched seconds and fires the REST completion endpoint automatically. Cache-aware: on every page load it performs a fresh lesson-status check via a cache-busting REST request (with a _t=Date.now() timestamp) so the "Completed" badge appears correctly even when a caching plugin such as WP Rocket or Cloudflare serves cached HTML. When completion fires, it dispatches a custom JavaScript event snnLearnProgress on the document — developers can listen to this event to update other parts of the page (e.g. a sidebar progress bar) in real time without a page refresh.',
+            'attributes'  => [
+                'cf_name' => 'Optional. Override the custom field name that holds the video URL. Default: the "Video URL Custom Field Slug" setting (defaults to "video_url"). Example: cf_name="video_url".',
+                'post_id' => 'Optional. Manually specify the post ID to read the video from. Defaults to the current post.',
+            ],
         ],
         [
             'tag'         => '[snn_learn_progress]',

@@ -8,8 +8,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 add_shortcode( 'snn_learn_video_player', function ( $atts ) {
     if ( ! is_user_logged_in() ) return '';
 
-    $post_id     = get_the_ID();
-    $video_field = snn_learn_get( 'video_field' );
+    $atts = shortcode_atts( [
+        'cf_name' => '',
+        'post_id' => 0,
+    ], $atts );
+
+    $post_id     = (int) $atts['post_id'] ?: get_the_ID();
+    $video_field = $atts['cf_name'] ?: snn_learn_get( 'video_field' );
     $video_url   = get_post_meta( $post_id, $video_field, true );
 
     // Defensive: some custom-field plugins (ACF, Meta Box) store values as
@@ -23,8 +28,16 @@ add_shortcode( 'snn_learn_video_player', function ( $atts ) {
         $video_url = (string) $video_url;
     }
 
-    if ( ! $video_url ) {
-        return '<!-- snn_learn_video_player: no video found in field "' . esc_html( $video_field ) . '" -->';
+    // If the value looks like an integer (attachment ID), resolve to URL.
+    if ( $video_url && is_numeric( $video_url ) && (int) $video_url == $video_url ) {
+        $attachment_url = wp_get_attachment_url( (int) $video_url );
+        if ( $attachment_url ) {
+            $video_url = $attachment_url;
+        }
+    }
+
+    if ( ! $video_url || ! filter_var( $video_url, FILTER_VALIDATE_URL ) ) {
+        return '<!-- snn_learn_video_player: no valid video URL found in field "' . esc_html( $video_field ) . '" for post ' . (int) $post_id . ' (raw value: ' . esc_html( (string) get_post_meta( $post_id, $video_field, true ) ) . ') -->';
     }
 
     $c_primary  = esc_attr( snn_learn_get( 'video_color_primary' ) ?: '#3b82f6' );
