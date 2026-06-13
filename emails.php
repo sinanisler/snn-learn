@@ -47,6 +47,15 @@ function snn_learn_email_defaults() {
                                       . '<blockquote style="border-left:3px solid #e0e0e0;margin:12px 0;padding:8px 16px;color:#555">{{comment_content}}</blockquote>'
                                       . '<p><a href="{{lesson_url}}" style="display:inline-block;padding:12px 24px;background:#0556c7;color:#fff;border-radius:6px;text-decoration:none;font-weight:600">View the Conversation →</a></p>'
                                       . '<p>– {{site_name}}</p>',
+
+        'inactivity_reminder_enabled' => 0,
+        'inactivity_reminder_days'   => 7,
+        'inactivity_reminder_subject'=> 'We miss you at {{course_name}}!',
+        'inactivity_reminder_body'   => '<p>Hi {{user_name}},</p>'
+                                      . '<p>We noticed you haven\'t been back to <strong>{{course_name}}</strong> for {{days_inactive}} days.</p>'
+                                      . '<p><a href="{{resume_url}}" style="display:inline-block;padding:12px 24px;background:#0556c7;color:#fff;border-radius:6px;text-decoration:none;font-weight:600">Continue Learning →</a></p>'
+                                      . '<p>You left off right here — pick up where you stopped!</p>'
+                                      . '<p>– {{site_name}}</p>',
     ];
 }
 
@@ -254,7 +263,118 @@ function snn_learn_email_comment_reply( $comment_id, $comment_approved, $comment
 }
 
 // ============================================================
-// 4. SETTINGS RENDER — called from snn_learn_settings_page()
+// 4. INACTIVITY REMINDER EMAIL
+//    Cron: snn_learn_inactivity_check (daily)
+//    Tags: {{user_name}}, {{user_email}}, {{course_name}},
+//          {{course_url}}, {{resume_url}}, {{days_inactive}},
+//          {{site_name}}
+// ============================================================
+
+// Register the daily cron job on init
+add_action( 'init', 'snn_learn_email_inactivity_schedule' );
+function snn_learn_email_inactivity_schedule() {
+    if ( ! wp_next_scheduled( 'snn_learn_inactivity_check' ) ) {
+        wp_schedule_event( time(), 'daily', 'snn_learn_inactivity_check' );
+    }
+}
+
+// Hook the cron event to our handler
+add_action( 'snn_learn_inactivity_check', 'snn_learn_email_inactivity_cron' );
+function snn_learn_email_inactivity_cron() {
+    if ( ! snn_learn_get_email( 'inactivity_reminder_enabled' ) ) {
+        return;
+    }
+
+    $days = (int) snn_learn_get_email( 'inactivity_reminder_days' );
+    if ( $days < 1 ) {
+        $days = 7;
+    }
+
+    global $wpdb;
+    $t = $wpdb->prefix . 'snn_learn_enrollments';
+
+    // Inactive between $days and $days+7 (don't email people who've been
+    // gone for 2x the threshold — they've probably already been reminded).
+    $ts_cutoff  = time() - ( $days * DAY_IN_SECONDS );
+    $ts_far_end = time() - ( ( $days + 7 ) * DAY_IN_SECONDS );
+
+    $stale = $wpdb->get_results( $wpdb->prepare(
+        "SELECT user_id, course_id, last_activity_at
+         FROM $t
+         WHERE post_id = course_id
+           AND last_activity_at < %d
+           AND last_activity_at > %d
+           AND completed_at IS NULL
+         LIMIT 100",
+        $ts_cutoff, $ts_far_end
+    ) );
+
+    if ( empty( $stale ) ) {
+        return;
+    }
+
+    foreach ( $stale as $row ) {
+        $user_id   = (int) $row->user_id;
+        $course_id = (int) $row->course_id;
+
+        // Prevent duplicate reminders: only email once per user+course per 30 days
+        $meta_key      = 'snn_learn_inactivity_reminded_' . $course_id;
+        $last_reminded = get_user_meta( $user_id, $meta_key, true );
+        if ( $last_reminded && ( time() - (int) $last_reminded ) < 30 * DAY_IN_SECONDS ) {
+            continue;
+        }
+
+        $user = get_userdata( $user_id );
+        if ( ! $user ) {
+            continue;
+        }
+
+        $course_name = get_the_title( $course_id );
+        if ( ! $course_name ) {
+            continue;
+        }
+
+        // Find the last lesson the user interacted with for a "resume" link
+        $last_lesson = $wpdb->get_row( $wpdb->prepare(
+            "SELECT post_id FROM $t
+             WHERE user_id = %d AND course_id = %d AND post_id != course_id
+             ORDER BY last_activity_at DESC LIMIT 1",
+            $user_id, $course_id
+        ) );
+
+        $resume_url    = $last_lesson
+            ? get_permalink( $last_lesson->post_id )
+            : get_permalink( $course_id );
+        $days_inactive = (int) round( ( time() - (int) $row->last_activity_at ) / DAY_IN_SECONDS );
+
+        $tags = [
+            'user_name'     => $user->display_name,
+            'user_email'    => $user->user_email,
+            'course_name'   => $course_name,
+            'course_url'    => get_permalink( $course_id ),
+            'resume_url'    => $resume_url,
+            'days_inactive' => (string) $days_inactive,
+            'site_name'     => get_bloginfo( 'name' ),
+        ];
+
+        $subject = snn_learn_email_replace_tags(
+            snn_learn_get_email( 'inactivity_reminder_subject' ),
+            $tags
+        );
+        $body = snn_learn_email_replace_tags(
+            snn_learn_get_email( 'inactivity_reminder_body' ),
+            $tags
+        );
+
+        snn_learn_email_send( $user->user_email, $subject, $body );
+
+        // Mark as reminded so we don't spam
+        update_user_meta( $user_id, $meta_key, time() );
+    }
+}
+
+// ============================================================
+// 5. SETTINGS RENDER — called from snn_learn_settings_page()
 //    when the active tab is 'emails'.
 // ============================================================
 
@@ -295,6 +415,20 @@ function snn_learn_emails_settings_section() {
                 'site_name'       => 'Site name',
             ],
         ],
+        'inactivity_reminder' => [
+            'title'       => 'Inactivity Reminder',
+            'desc'        => 'Sent automatically via daily cron to users who haven\'t been active for the configured number of days. Each user+course pair gets at most one reminder every 30 days.',
+            'has_days'    => true,
+            'tags'        => [
+                'user_name'     => "User's display name",
+                'user_email'    => "User's email address",
+                'course_name'   => 'Course title',
+                'course_url'    => 'Course permalink',
+                'resume_url'    => 'Link to last active lesson',
+                'days_inactive' => 'Number of days since last activity',
+                'site_name'     => 'Site name',
+            ],
+        ],
     ];
 
     foreach ( $editors as $key => $info ) :
@@ -327,6 +461,26 @@ function snn_learn_emails_settings_section() {
                     style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:monospace"
                     maxlength="200">
             </div>
+
+            <?php if ( ! empty( $info['has_days'] ) ) : ?>
+            <!-- Inactivity Days Threshold -->
+            <div style="margin-bottom:16px">
+                <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">
+                    Send After Days of Inactivity
+                </label>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <input type="number"
+                        name="snn_learn_email_<?= esc_attr( $key ) ?>_days"
+                        value="<?= esc_attr( (int) snn_learn_get_email( $key . '_days' ) ) ?>"
+                        min="1" max="90" step="1"
+                        style="width:100px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
+                    <span style="font-size:12px;color:#6b7280">days</span>
+                </div>
+                <p style="margin:4px 0 0;font-size:11px;color:#9ca3af">
+                    The daily cron sends reminders to users inactive for <strong>this many days</strong> up to <strong>this+7 days</strong>. Each user+course pair is reminded at most once every 30 days.
+                </p>
+            </div>
+            <?php endif; ?>
 
             <!-- Body — wp_editor -->
             <div style="margin-bottom:12px">
@@ -407,7 +561,7 @@ function snn_learn_emails_save_settings() {
         return;
     }
 
-    $email_keys = [ 'course_completed', 'first_enrollment', 'comment_reply' ];
+    $email_keys = [ 'course_completed', 'first_enrollment', 'comment_reply', 'inactivity_reminder' ];
 
     foreach ( $email_keys as $key ) {
         // Checkbox (disabled by default — only saves 1 if explicitly checked)
@@ -427,5 +581,13 @@ function snn_learn_emails_save_settings() {
             ? wp_kses_post( wp_unslash( $_POST[ 'snn_learn_email_' . $key . '_body' ] ) )
             : '';
         update_option( 'snn_learn_email_' . $key . '_body', $body );
+
+        // Inactivity days (only applicable for inactivity_reminder)
+        if ( $key === 'inactivity_reminder' ) {
+            $days = isset( $_POST[ 'snn_learn_email_inactivity_reminder_days' ] )
+                ? max( 1, min( 90, (int) $_POST[ 'snn_learn_email_inactivity_reminder_days' ] ) )
+                : 7;
+            update_option( 'snn_learn_email_inactivity_reminder_days', $days );
+        }
     }
 }
