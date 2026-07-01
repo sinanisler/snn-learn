@@ -122,10 +122,119 @@ add_action( 'admin_menu', function () {
     add_submenu_page( 'snn-learn', 'Emails',                'Emails',          'manage_options', 'snn-learn-settings-emails',     'snn_learn_emails_settings_page'     );
     add_submenu_page( 'snn-learn', 'User Permalinks',       'User Permalinks', 'manage_options', 'snn-learn-settings-permalinks', 'snn_learn_permalinks_settings_page' );
     add_submenu_page( 'snn-learn', 'Page Ordering',         'Page Ordering',   'manage_options', 'snn-learn-settings-ordering',   'snn_learn_ordering_settings_page'   );
-    add_submenu_page( 'snn-learn', 'Danger Zone',           'Danger Zone',     'manage_options', 'snn-learn-settings-danger',     'snn_learn_danger_settings_page'     );
     add_submenu_page( 'snn-learn', 'Shortcodes',            'Shortcodes',      'manage_options', 'snn-learn-shortcodes',          'snn_learn_shortcodes_page'          );
     // Note: chapters and lessons share the same post type — depth in hierarchy determines the role.
 } );
+
+// ============================================================
+// 3b. PLUGIN LIST — UNINSTALL & CLEAR DATA
+// ============================================================
+
+/**
+ * Add a red "Uninstall & Clear Data" action link on the Plugins list page.
+ * Two-step JavaScript confirmation before the action fires.
+ */
+add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), 'snn_learn_plugin_action_links' );
+function snn_learn_plugin_action_links( $links ) {
+    $url = wp_nonce_url(
+        admin_url( 'admin-post.php?action=snn_learn_uninstall_data' ),
+        'snn_learn_uninstall_data'
+    );
+    $links['snn_uninstall'] = sprintf(
+        '<a href="%s" class="snn-uninstall-link" style="color:#dc2626;font-weight:600" data-confirm="1">Uninstall &amp; Clear Data</a>',
+        esc_url( $url )
+    );
+    return $links;
+}
+
+/**
+ * Handle the uninstall-and-clear-data admin-post action.
+ * Drops the entire snn_learn_enrollments table and wipes all plugin options.
+ */
+add_action( 'admin_post_snn_learn_uninstall_data', 'snn_learn_handle_uninstall_data' );
+function snn_learn_handle_uninstall_data() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( 'You do not have permission to perform this action.' );
+    }
+
+    check_admin_referer( 'snn_learn_uninstall_data' );
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'snn_learn_enrollments';
+
+    // Drop the custom table completely
+    $wpdb->query( "DROP TABLE IF EXISTS `$table`" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+
+    // Wipe all snn_learn_* options and related settings
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'snn_learn_%'"
+    );
+    // Also remove the page-ordering option (set by page-orders.php integration)
+    delete_option( 'spo_allowed_post_types' );
+
+    // Clear any cached values
+    wp_cache_flush();
+
+    // Redirect back to plugins page with a success flag
+    wp_safe_redirect( add_query_arg( 'snn_learn_cleared', '1', admin_url( 'plugins.php' ) ) );
+    exit;
+}
+
+/**
+ * Show a success notice on the plugins page after data is cleared.
+ */
+add_action( 'admin_notices', 'snn_learn_uninstall_notice' );
+function snn_learn_uninstall_notice() {
+    $screen = get_current_screen();
+    if ( ! $screen || $screen->id !== 'plugins' ) {
+        return;
+    }
+    if ( ! isset( $_GET['snn_learn_cleared'] ) ) {
+        return;
+    }
+    ?>
+    <div class="notice notice-success is-dismissible">
+        <p><strong>SNN Learn:</strong> All data has been cleared. The enrollments table was dropped and all plugin settings were removed. You can now deactivate and delete the plugin, or re-activate it to start fresh.</p>
+    </div>
+    <?php
+}
+
+/**
+ * Inline JS on the plugins page — intercepts the uninstall link with
+ * a two-step confirmation dialog.
+ */
+add_action( 'admin_footer-plugins.php', 'snn_learn_plugins_page_js' );
+function snn_learn_plugins_page_js() {
+    ?>
+    <script>
+    (function () {
+        var link = document.querySelector('.snn-uninstall-link');
+        if (!link) return;
+
+        link.addEventListener('click', function (e) {
+            e.preventDefault();
+            var step1 = confirm(
+                'WARNING: This will permanently DELETE all SNN Learn data.\n\n' +
+                '• The enrollments table will be DROPPED\n' +
+                '• All plugin settings will be removed\n' +
+                '• All user progress and course completion records will be gone forever\n\n' +
+                'This cannot be undone. Are you sure?'
+            );
+            if (!step1) return;
+
+            var step2 = confirm(
+                'FINAL CONFIRMATION\n\n' +
+                'This is your last chance. All SNN Learn data will be wiped clean.\n\n' +
+                'Click OK to proceed, or Cancel to abort.'
+            );
+            if (step2) {
+                window.location.href = link.href;
+            }
+        });
+    })();
+    </script>
+    <?php
+}
 
 // ============================================================
 // 4. ADMIN ASSETS — injected only on SNN Learn pages
@@ -145,7 +254,6 @@ add_action( 'admin_head', function () {
         .snn-learn-settings-emails .wrap,
         .snn-learn-settings-permalinks .wrap,
         .snn-learn-settings-ordering .wrap,
-        .snn-learn-settings-danger .wrap,
         .snn-learn-shortcodes .wrap { max-width: 100%; }
     </style>
     <?php
