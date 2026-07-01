@@ -23,6 +23,8 @@ function snn_learn_create_table() {
     $charset = $wpdb->get_charset_collate();
 
     // dbDelta rules: lowercase types, exactly one space between column name and type, two spaces before (id) in PRIMARY KEY
+    // is_course = 1 marks course-enrollment rows (post_id = course_id)
+    // is_lesson = 0 marks chapter auto-completion rows
     $sql = "CREATE TABLE $table (
         id bigint unsigned NOT NULL AUTO_INCREMENT,
         user_id bigint unsigned NOT NULL,
@@ -31,13 +33,19 @@ function snn_learn_create_table() {
         enrolled_at int unsigned NOT NULL,
         completed_at int unsigned DEFAULT NULL,
         last_activity_at int unsigned DEFAULT NULL,
+        is_course tinyint(1) NOT NULL DEFAULT 0,
+        is_lesson tinyint(1) NOT NULL DEFAULT 1,
         PRIMARY KEY  (id),
         UNIQUE KEY uq_user_post (user_id, post_id),
         KEY idx_course_id (course_id),
         KEY idx_user_id (user_id),
         KEY idx_completed_at (completed_at),
         KEY idx_enrolled_at (enrolled_at),
-        KEY idx_last_activity_at (last_activity_at)
+        KEY idx_last_activity_at (last_activity_at),
+        KEY idx_is_course (is_course),
+        KEY idx_is_lesson (is_lesson),
+        KEY idx_user_course (user_id, course_id),
+        KEY idx_course_activity (is_course, last_activity_at)
     ) $charset;";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -47,9 +55,9 @@ register_activation_hook( __FILE__, 'snn_learn_create_table' );
 
 // Auto-create / upgrade table on every plugin load — safe to run repeatedly (dbDelta is idempotent)
 add_action( 'plugins_loaded', function () {
-    if ( get_option( 'snn_learn_db_version' ) !== '2.2' ) {
+    if ( get_option( 'snn_learn_db_version' ) !== '2.3' ) {
         snn_learn_create_table();
-        update_option( 'snn_learn_db_version', '2.2' );
+        update_option( 'snn_learn_db_version', '2.3' );
     }
 } );
 
@@ -267,11 +275,20 @@ function snn_learn_get_course_lessons( $course_id ) {
  * Calculate completion percentage for a user in a course (0–100).
  */
 function snn_learn_calc_progress( $user_id, $course_id ) {
+    static $cache = [];
+    $key = (int) $user_id . ':' . (int) $course_id;
+    if ( isset( $cache[ $key ] ) ) {
+        return $cache[ $key ];
+    }
+
     global $wpdb;
     $t           = $wpdb->prefix . 'snn_learn_enrollments';
     $all_lessons = snn_learn_get_course_lessons( $course_id );
     $total       = count( $all_lessons );
-    if ( ! $total ) return 0;
+    if ( ! $total ) {
+        $cache[ $key ] = 0;
+        return 0;
+    }
 
     $placeholders = implode( ',', array_fill( 0, $total, '%d' ) );
     $args         = array_merge( [ (int) $user_id ], $all_lessons );
@@ -280,7 +297,9 @@ function snn_learn_calc_progress( $user_id, $course_id ) {
         $args
     ) );
 
-    return min( 100, (int) round( $completed / $total * 100 ) );
+    $result = min( 100, (int) round( $completed / $total * 100 ) );
+    $cache[ $key ] = $result;
+    return $result;
 }
 
 /**
@@ -293,10 +312,10 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
     $t   = $wpdb->prefix . 'snn_learn_enrollments';
     $now = time();
 
-    // 1. Ensure the top-level course enrollment row exists
+    // 1. Ensure the top-level course enrollment row exists (is_course=1, is_lesson=0)
     if ( $post_id != $course_id ) {
         $result = $wpdb->query( $wpdb->prepare(
-            "INSERT IGNORE INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at) VALUES (%d, %d, %d, %d, %d)",
+            "INSERT IGNORE INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at, is_course, is_lesson) VALUES (%d, %d, %d, %d, %d, 1, 0)",
             (int) $user_id, (int) $course_id, (int) $course_id, $now, $now
         ) );
         // Fire action only on the very first enrollment in this course
@@ -307,12 +326,13 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
 
     // 2. Upsert the lesson row — single round-trip via ON DUPLICATE KEY UPDATE.
     // COALESCE preserves an existing completed_at (never un-completes a lesson).
+    // is_lesson defaults to 1 via the schema; only is_course is explicitly 0.
     // Two query variants: when $mark_complete is false we omit completed_at from
     // the INSERT entirely so it defaults to NULL and the UPDATE clause ignores it.
     if ( $mark_complete ) {
         $wpdb->query( $wpdb->prepare(
-            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
-             VALUES (%d, %d, %d, %d, %d, %d)
+            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at, is_course)
+             VALUES (%d, %d, %d, %d, %d, %d, 0)
              ON DUPLICATE KEY UPDATE
                  last_activity_at = VALUES(last_activity_at),
                  completed_at     = COALESCE(completed_at, VALUES(completed_at))",
@@ -320,8 +340,8 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
         ) );
     } else {
         $wpdb->query( $wpdb->prepare(
-            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at)
-             VALUES (%d, %d, %d, %d, %d)
+            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at, is_course)
+             VALUES (%d, %d, %d, %d, %d, 0)
              ON DUPLICATE KEY UPDATE
                  last_activity_at = VALUES(last_activity_at)",
             (int) $user_id, (int) $post_id, (int) $course_id, $now, $now
@@ -358,9 +378,10 @@ function snn_learn_maybe_complete_chapter( $user_id, $lesson_id, $course_id, $no
 
     // Single ODKU upsert — eliminates the SELECT round-trip.
     // COALESCE preserves a pre-existing completed_at (chapter stays complete once completed).
+    // is_course=0, is_lesson=0 — chapter rows are neither course nor lesson.
     $wpdb->query( $wpdb->prepare(
-        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
-         VALUES (%d, %d, %d, %d, %d, %d)
+        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at, is_course, is_lesson)
+         VALUES (%d, %d, %d, %d, %d, %d, 0, 0)
          ON DUPLICATE KEY UPDATE
              completed_at     = COALESCE(completed_at, VALUES(completed_at)),
              last_activity_at = VALUES(last_activity_at)",
@@ -392,10 +413,19 @@ function snn_learn_maybe_complete_course( $user_id, $course_id, $now = null ) {
 
     if ( $done_count < count( $all_lessons ) ) return;
 
+    // Guard: only fire completion action once — check if already completed
+    $already_completed = (bool) $wpdb->get_var( $wpdb->prepare(
+        "SELECT completed_at FROM $t WHERE user_id = %d AND post_id = %d AND completed_at IS NOT NULL",
+        (int) $user_id, (int) $course_id
+    ) );
+    if ( $already_completed ) {
+        return;
+    }
+
     // All lessons done — stamp completed_at on the course row (COALESCE never un-completes it)
     $wpdb->query( $wpdb->prepare(
-        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
-         VALUES (%d, %d, %d, %d, %d, %d)
+        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at, is_course, is_lesson)
+         VALUES (%d, %d, %d, %d, %d, %d, 1, 0)
          ON DUPLICATE KEY UPDATE
              completed_at     = COALESCE(completed_at, VALUES(completed_at)),
              last_activity_at = VALUES(last_activity_at)",
@@ -539,7 +569,28 @@ add_filter( 'rest_post_dispatch', function ( $response, $server, $request ) {
 }, 10, 3 );
 
 // ============================================================
-// 10. SHORTCODES
+// 10. SHARED HELPERS
+// ============================================================
+
+/**
+ * Deterministic 32-character alphanumeric certificate hash (a-z0-9).
+ * Seeded by user_id + course_id — same seed always produces the same hash.
+ * Used by bricks.php and emails.php.
+ */
+function snn_learn_cert_hash( $user_id, $course_id ) {
+    $seed   = $user_id . '+' . $course_id;
+    $raw    = hash( 'sha256', $seed );
+    $chars  = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    $result = '';
+    for ( $i = 0; $i < 32; $i++ ) {
+        $byte    = hexdec( substr( $raw, $i * 2, 2 ) );
+        $result .= $chars[ $byte % 36 ];
+    }
+    return $result;
+}
+
+// ============================================================
+// 11. SHORTCODES
 // ============================================================
 
 require_once plugin_dir_path( __FILE__ ) . 'video-player.php';
@@ -564,7 +615,7 @@ if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() ==
 
 
 // ============================================================
-// 11. CHAPTER → FIRST LESSON REDIRECT
+// 12. CHAPTER → FIRST LESSON REDIRECT
 // ============================================================
 
 add_action( 'template_redirect', function () {
@@ -598,11 +649,11 @@ add_action( 'template_redirect', function () {
 } );
 
 // ============================================================
-// 12. COMMENT LIST SHORTCODE — moved to shortcodes.php
+// 13. COMMENT LIST SHORTCODE — moved to shortcodes.php
 // ============================================================
 
 // ============================================================
-// 13. ADMIN: COMMENT RATINGS COLUMN
+// 14. ADMIN: COMMENT RATINGS COLUMN
 // ============================================================
 
 add_filter( 'manage_edit-comments_columns', 'snn_learn_add_comment_rating_column' );
@@ -629,7 +680,7 @@ function snn_learn_display_comment_rating_column( $column, $comment_id ) {
 }
 
 // ============================================================
-// 14. ADMIN: COMMENT RATING METABOX
+// 15. ADMIN: COMMENT RATING METABOX
 // ============================================================
 
 add_action( 'add_meta_boxes_comment', 'snn_learn_add_comment_rating_metabox' );
@@ -713,7 +764,7 @@ function snn_learn_save_comment_rating_metabox( $comment_id ) {
 }
 
 // ============================================================
-// 15. USER PERMALINKS
+// 16. USER PERMALINKS
 // ============================================================
 
 /**

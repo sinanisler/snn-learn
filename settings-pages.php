@@ -272,8 +272,6 @@ function snn_learn_emails_settings_page() {
 
         <form method="post" action="" style="margin-top:28px">
             <?php wp_nonce_field( 'snn_learn_emails_save', 'snn_learn_emails_nonce' ); ?>
-            <!-- Hidden field so snn_learn_emails_save_settings() detects this form -->
-            <input type="hidden" name="snn_learn_email_course_completed_enabled" value="0">
 
             <div class="snn-settings-card" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px 28px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
                 <h2 style="margin:0 0 20px;font-size:16px;font-weight:700;color:#111827;border-bottom:1px solid #f3f4f6;padding-bottom:14px">Email Notifications</h2>
@@ -644,8 +642,7 @@ function snn_learn_danger_settings_page() {
                 <form method="post" action="">
                     <?php wp_nonce_field( 'snn_learn_reset_data', 'snn_learn_reset_nonce' ); ?>
                     <button type="submit" id="snn_delete_btn" disabled
-                        style="background:#dc2626;border:1px solid #b91c1c;color:#fff;font-weight:600;padding:10px 22px;border-radius:6px;cursor:not-allowed;font-size:14px;opacity:0.45"
-                        onclick="return false">&#128465; Delete All Enrollment Data</button>
+                        style="background:#dc2626;border:1px solid #b91c1c;color:#fff;font-weight:600;padding:10px 22px;border-radius:6px;cursor:not-allowed;font-size:14px;opacity:0.45">&#128465; Delete All Enrollment Data</button>
                 </form>
             </div>
 

@@ -36,6 +36,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  *   enrolled_at      INT UNSIGNED     NOT NULL   — Unix timestamp of first enrollment/activity
  *   completed_at     INT UNSIGNED     DEFAULT NULL — Unix timestamp of completion (NULL = not done yet)
  *   last_activity_at INT UNSIGNED     DEFAULT NULL — Unix timestamp of the most recent activity
+ *   is_course        TINYINT(1)       NOT NULL DEFAULT 0 — 1 = course enrollment row
+ *   is_lesson        TINYINT(1)       NOT NULL DEFAULT 1 — 0 = chapter auto-completion row
  *
  * Unique constraint: UNIQUE KEY uq_user_post (user_id, post_id)
  *   → Each (user, post) pair can only have ONE row. ON DUPLICATE KEY UPDATE is
@@ -43,12 +45,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Indexes:
  *   PRIMARY KEY  (id)
- *   UNIQUE KEY   uq_user_post      (user_id, post_id)
- *   KEY          idx_course_id     (course_id)
- *   KEY          idx_user_id       (user_id)
- *   KEY          idx_completed_at  (completed_at)
- *   KEY          idx_enrolled_at   (enrolled_at)
+ *   UNIQUE KEY   uq_user_post        (user_id, post_id)
+ *   KEY          idx_course_id       (course_id)
+ *   KEY          idx_user_id         (user_id)
+ *   KEY          idx_completed_at    (completed_at)
+ *   KEY          idx_enrolled_at     (enrolled_at)
  *   KEY          idx_last_activity_at (last_activity_at)
+ *   KEY          idx_is_course       (is_course)
+ *   KEY          idx_is_lesson       (is_lesson)
+ *   KEY          idx_user_course     (user_id, course_id)
+ *   KEY          idx_course_activity (is_course, last_activity_at)
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * CONTENT / HIERARCHY MODEL
@@ -91,20 +97,20 @@ if ( ! defined( 'ABSPATH' ) ) {
  *      SELECT COUNT(*) FROM $t
  *
  * 2. COUNT ONLY COURSE-LEVEL ENROLLMENTS (one row per user per course):
- *      SELECT COUNT(*) FROM $t WHERE post_id = course_id
+ *      SELECT COUNT(*) FROM $t WHERE is_course = 1
  *
  * 3. ENROLLMENT TREND (course starts per day, last N days):
  *      SELECT FROM_UNIXTIME(enrolled_at, '%Y-%m-%d') AS day, COUNT(*) AS cnt
  *      FROM $t
- *      WHERE post_id = course_id AND enrolled_at >= UNIX_TIMESTAMP(NOW() - INTERVAL 30 DAY)
+ *      WHERE is_course = 1 AND enrolled_at >= UNIX_TIMESTAMP(NOW() - INTERVAL 30 DAY)
  *      GROUP BY day ORDER BY day;
  *    ← Use PHP time() arithmetic instead of FROM_UNIXTIME() in WHERE for sargability:
  *      WHERE enrolled_at >= %d  (pass $ts_30_days_ago as int)
  *
- * 4. COURSE COMPLETION RATE (across all lessons, excludes course-level rows):
+ * 4. COURSE COMPLETION RATE (across all lessons, excludes course & chapter rows):
  *      SELECT (COUNT(CASE WHEN completed_at IS NOT NULL THEN 1 END)
  *              / NULLIF(COUNT(*), 0)) * 100
- *      FROM $t WHERE post_id != course_id
+ *      FROM $t WHERE is_lesson = 1
  *
  * 5. WEEKLY ACTIVE USERS (distinct users with recent activity):
  *      SELECT COUNT(DISTINCT user_id) FROM $t
@@ -125,12 +131,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * 8. AVERAGE DAYS TO COMPLETE A COURSE:
  *      SELECT AVG(completed_at - enrolled_at) / 86400
- *      FROM $t WHERE post_id = course_id AND completed_at IS NOT NULL
+ *      FROM $t WHERE is_course = 1 AND completed_at IS NOT NULL
  *
  * 9. PEAK ENROLLMENT DAY:
  *      $offset = wp_timezone()->getOffset(…);
  *      SELECT ((enrolled_at + $offset) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt
- *      FROM $t WHERE post_id = course_id
+ *      FROM $t WHERE is_course = 1
  *      GROUP BY day_ts ORDER BY cnt DESC LIMIT 1
  *      — Then in PHP: wp_date('Y-m-d', $row->day_ts - $offset)
  *      The WP timezone offset shifts day boundaries so grouping aligns with the
@@ -153,19 +159,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  *       SELECT FROM_UNIXTIME(completed_at, '%Y-%m-%d') AS day,
  *              COUNT(*) AS completed_lessons
  *       FROM $t
- *       WHERE post_id != course_id AND completed_at IS NOT NULL
+ *       WHERE is_lesson = 1 AND completed_at IS NOT NULL
  *         AND completed_at >= %d
  *       GROUP BY day ORDER BY day
  *
  * 14. NEW USERS (first enrollment date per user):
  *       SELECT user_id, MIN(enrolled_at) AS first_seen
- *       FROM $t WHERE post_id = course_id
+ *       FROM $t WHERE is_course = 1
  *       GROUP BY user_id ORDER BY first_seen DESC
  *
  * 15. COURSE LEADERBOARD (users ranked by lesson completion count):
  *       SELECT user_id, COUNT(*) AS lessons_done
  *       FROM $t
- *       WHERE course_id = %d AND post_id != course_id AND completed_at IS NOT NULL
+ *       WHERE course_id = %d AND is_lesson = 1 AND completed_at IS NOT NULL
  *       GROUP BY user_id ORDER BY lessons_done DESC LIMIT 10
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -233,43 +239,51 @@ function snn_learn_dashboard_page() {
     // configured timezone (Settings → General → Timezone).
     $wp_utc_offset = (int) wp_timezone()->getOffset( new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) ) );
 
-    // ---- KPI Queries ----
-    $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id = course_id" );
-    $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE post_id = course_id AND enrolled_at >= %d", $ts_30_days_ago ) );
+    // ---- KPI Queries (all use indexed is_course / is_lesson columns) ----
+    $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE is_course = 1" );
+    $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE is_course = 1 AND enrolled_at >= %d", $ts_30_days_ago ) );
 
-    // Fix: Total items (Lessons + Chapters) vs Completed items (Lessons + Chapters)
-    // We exclude the course-level row (post_id = course_id) to get the true completion pool.
-    $total_items_all     = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id" );
-    $completed_items_all = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE post_id != course_id AND completed_at IS NOT NULL" );
+    // Total items (Lessons + Chapters) vs Completed items (Lessons + Chapters)
+    // Exclude course-level rows via is_course=0 to get the true completion pool.
+    $total_items_all     = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE is_course = 0" );
+    $completed_items_all = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE is_course = 0 AND completed_at IS NOT NULL" );
 
-    // Optimized Avg completion rate: Batch progress calculations to avoid N+1 queries
-    $user_course_stats = $wpdb->get_results(
+    // ---- Optimized: Single query for BOTH KPI completion rate AND course performance ----
+    // Uses is_lesson = 1 so that chapter auto-completion rows are NOT counted.
+    // This fixes the 128%+ completion-rate bug where chapters inflated the numerator.
+    $all_user_done = $wpdb->get_results(
         "SELECT course_id, user_id, COUNT(completed_at) as done
-         FROM $t WHERE post_id != course_id GROUP BY course_id, user_id"
+         FROM $t
+         WHERE is_lesson = 1 AND completed_at IS NOT NULL
+         GROUP BY course_id, user_id"
     );
 
+    // --- Build KPI completion rate ---
     $all_rates = [];
-    foreach ( $user_course_stats as $stat ) {
+    $done_by_course = []; // Also reused for the Course Performance table below
+    foreach ( $all_user_done as $stat ) {
         $cid         = (int) $stat->course_id;
         $total_items = count( snn_learn_get_course_lessons( $cid ) );
         $all_rates[] = $total_items > 0 ? ( $stat->done / $total_items ) * 100 : 0;
+        $done_by_course[ $cid ][] = (int) $stat->done;
     }
 
     // Account for users who started a course but haven't completed any lessons (0% progress)
-    $total_pairs = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT user_id, course_id) FROM $t WHERE post_id = course_id" );
+    $total_pairs = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE is_course = 1" );
     if ( $total_pairs > count( $all_rates ) ) {
         $all_rates = array_merge( $all_rates, array_fill( 0, $total_pairs - count( $all_rates ), 0 ) );
     }
     $completion_rate = $all_rates ? round( array_sum( $all_rates ) / count( $all_rates ), 1 ) : 0;
 
     $weekly_active      = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= %d", $ts_7_days_ago ) );
-    $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE post_id = course_id AND last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
-    $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t" );
-    $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE post_id = course_id AND completed_at IS NOT NULL" );
-    // Use integer division with WP timezone offset so day boundaries align with
-    // the site's configured timezone, not UTC.
+    $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE is_course = 1 AND last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
+    $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t WHERE is_course = 1" );
+    $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE is_course = 1 AND completed_at IS NOT NULL" );
+
+    // Peak enrollment day — add is_course=1 to narrow the set
     $peak_day = $wpdb->get_row( $wpdb->prepare(
-        "SELECT ((enrolled_at + %d) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt FROM $t GROUP BY day_ts ORDER BY cnt DESC LIMIT 1",
+        "SELECT ((enrolled_at + %d) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt
+         FROM $t WHERE is_course = 1 GROUP BY day_ts ORDER BY cnt DESC LIMIT 1",
         $wp_utc_offset
     ) );
     if ( $peak_day ) {
@@ -277,13 +291,10 @@ function snn_learn_dashboard_page() {
     }
 
     // ---- Course Enrollment Trend (last 30 days) ----
-    // Uses the master course-enrollment row (post_id = course_id) that snn_learn_record_lesson()
-    // inserts when a user first starts a course. Day boundaries use the WP timezone offset
-    // so grouping matches the site's configured timezone.
     $trend_rows   = $wpdb->get_results( $wpdb->prepare(
         "SELECT ((enrolled_at + %d) DIV 86400) AS day_key, COUNT(*) AS cnt
          FROM $t
-         WHERE post_id = course_id
+         WHERE is_course = 1
            AND enrolled_at >= %d
          GROUP BY day_key
          ORDER BY day_key DESC
@@ -292,21 +303,17 @@ function snn_learn_dashboard_page() {
         $ts_30_days_ago
     ) );
     $trend_rows   = array_reverse( $trend_rows );
-    // Convert day_key back to a readable date in WP timezone.
     $trend_labels = array_map( function ( $row ) use ( $wp_utc_offset ) {
         return wp_date( 'Y-m-d', (int) $row->day_key * 86400 - $wp_utc_offset );
     }, $trend_rows );
     $trend_data   = array_map( function ( $row ) { return (int) $row->cnt; }, $trend_rows );
 
-    // ---- Course performance ----
-    // enrolled = distinct users with a course-level enrollment row (post_id = course_id)
-    // completed = total completed lesson/chapter rows (post_id != course_id)
-    // rate = avg progress per enrolled user (batched to avoid N+1)
+    // ---- Course performance (reuses $done_by_course built above — no extra DB queries) ----
     $course_perf_base = $wpdb->get_results(
         "SELECT course_id,
-                COUNT(DISTINCT CASE WHEN post_id = course_id THEN user_id END) AS enrolled,
-                SUM(CASE WHEN post_id != course_id AND completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed
+                COUNT(DISTINCT user_id) AS enrolled
          FROM $t
+         WHERE is_course = 1
          GROUP BY course_id
          ORDER BY enrolled DESC
          LIMIT 50"
@@ -314,20 +321,13 @@ function snn_learn_dashboard_page() {
     $courses_perf = [];
     foreach ( $course_perf_base as $c ) {
         $course_id = (int) $c->course_id;
-        
-        // Count actual lessons in the course structure (not just what's in the DB)
-        $total_items = count( snn_learn_get_course_lessons( $course_id ) );
 
-        // Batch progress for this course
-        $user_done_counts = $wpdb->get_results( $wpdb->prepare(
-            "SELECT user_id, COUNT(completed_at) as done
-             FROM $t WHERE course_id = %d AND post_id != course_id GROUP BY user_id",
-            $course_id
-        ) );
+        $total_items = count( snn_learn_get_course_lessons( $course_id ) );
+        $dones       = $done_by_course[ $course_id ] ?? []; // Reuses the single query!
 
         $rates = [];
-        foreach ( $user_done_counts as $ud ) {
-            $rates[] = $total_items > 0 ? ( $ud->done / $total_items ) * 100 : 0;
+        foreach ( $dones as $done ) {
+            $rates[] = $total_items > 0 ? ( $done / $total_items ) * 100 : 0;
         }
 
         // Fill in 0% for enrolled users with no lesson activity
@@ -335,18 +335,26 @@ function snn_learn_dashboard_page() {
             $rates = array_merge( $rates, array_fill( 0, (int) $c->enrolled - count( $rates ), 0 ) );
         }
 
-        $c->rate = $rates ? round( array_sum( $rates ) / count( $rates ), 1 ) : 0;
+        // Compute completed count from $dones (only lesson completions, no chapters)
+        $c->completed = array_sum( $dones );
+        $c->rate      = $rates ? round( array_sum( $rates ) / count( $rates ), 1 ) : 0;
         $courses_perf[] = $c;
     }
 
     // ---- At-risk students ----
     $at_risk = $wpdb->get_results( $wpdb->prepare(
-        "SELECT user_id, course_id, last_activity_at FROM $t WHERE post_id = course_id AND last_activity_at < %d AND completed_at IS NULL ORDER BY last_activity_at ASC LIMIT 20",
+        "SELECT user_id, course_id, last_activity_at FROM $t
+         WHERE is_course = 1 AND last_activity_at < %d AND completed_at IS NULL
+         ORDER BY last_activity_at ASC LIMIT 20",
         $ts_14_days_ago
     ) );
 
     // ---- Recent activity feed ----
-    $recent_activity = $wpdb->get_results( "SELECT user_id, course_id, enrolled_at, completed_at, last_activity_at FROM $t WHERE post_id = course_id ORDER BY last_activity_at DESC LIMIT 20" );
+    $recent_activity = $wpdb->get_results(
+        "SELECT user_id, course_id, enrolled_at, completed_at, last_activity_at
+         FROM $t WHERE is_course = 1
+         ORDER BY last_activity_at DESC LIMIT 20"
+    );
     ?>
     <div class="snn-learn-dashboard">
     <div class="p-6">

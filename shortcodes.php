@@ -254,10 +254,10 @@ add_shortcode( 'snn_learn_my_courses', function () {
     global $wpdb;
     $t = $wpdb->prefix . 'snn_learn_enrollments';
 
-    // Fetch all course rows for this user (post_id = course_id = top-level enrollment)
+    // Fetch all course rows for this user (is_course = 1 = top-level enrollment)
     $rows = $wpdb->get_results( $wpdb->prepare(
         "SELECT course_id, enrolled_at, completed_at FROM $t
-          WHERE user_id = %d AND post_id = course_id
+          WHERE user_id = %d AND is_course = 1
           ORDER BY enrolled_at DESC",
         $user_id
     ) );
@@ -500,7 +500,8 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
                 textGray:   '#666',
                 canvasWidth:  1600,
                 canvasHeight: 1130,
-                orgId: '110658612'
+                orgId: '110658612',
+                postType: '<?= esc_js( snn_learn_get('course_post_type') ?: 'course' ) ?>'
             };
 
             var certificateCanvas = null;
@@ -552,17 +553,21 @@ add_shortcode( 'snn_learn_user_certificate', function ( $atts ) {
             }
 
             function getCourseName(cid) {
-                return fetch('/wp-json/wp/v2/course/' + encodeURIComponent(cid))
+                var pt = (snnCertConfig && snnCertConfig.postType) ? snnCertConfig.postType : 'course';
+                return fetch('/wp-json/wp/v2/' + encodeURIComponent(pt) + '/' + encodeURIComponent(cid))
                     .then(function (r) { return r.json(); })
                     .then(function (d) { return (d.title && d.title.rendered) ? d.title.rendered : 'Course'; })
                     .catch(function () { return 'Course'; });
             }
 
             function getUserRealName(uid) {
-                return fetch('/wp-json/snn-edu/v1/user-name/' + encodeURIComponent(uid))
-                    .then(function (r) { return r.json(); })
-                    .then(function (d) { return d.full_name || 'Participant'; })
-                    .catch(function () { return 'Participant'; });
+                // The user name is passed as ?user=Name in the certificate URL — use it directly.
+                var params = new URLSearchParams(window.location.search);
+                var userNameParam = params.get('user');
+                if (userNameParam) {
+                    return Promise.resolve(userNameParam);
+                }
+                return Promise.resolve('Participant');
             }
 
             function drawFittedText(ctx, text, x, y, maxWidth, fontFamily, fontWeight, maxFontSize, minFontSize) {
