@@ -528,7 +528,7 @@ class SNN_Learn_Video_Player_Element extends Element {
             #" . esc_attr($root_id) . " .snn-learn-chapter-dot { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 5px; height: 6px; background: var(--chapter-dot-color); border-radius: 0px; cursor: pointer; transition: transform 0.2s ease; }
             #" . esc_attr($root_id) . " .snn-learn-chapter-dot:hover { transform: translate(-50%, -50%) scale(1.5); }
             #" . esc_attr($root_id) . " .snn-learn-cc-container { position: relative; }
-            #" . esc_attr($root_id) . " .snn-learn-cc-menu { position: absolute; bottom: 100%; right: 0; margin-bottom: 10px; background-color: #000000e6; border-radius: 5px; min-width: 200px; max-height: 250px; overflow-y: auto; display: none; z-index: 100; }
+            #" . esc_attr($root_id) . " .snn-learn-cc-menu { position: absolute; bottom: 100%; right: 0; margin-bottom: 10px; background-color: #000000e6; border-radius: 5px; min-width: 200px; max-height: 350px; overflow-y: auto; display: none; z-index: 100; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu.snn-learn-show { display: block; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu::-webkit-scrollbar { width: 6px; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu::-webkit-scrollbar-track { background: #ffffff1a; border-radius: 3px; }
