@@ -483,65 +483,60 @@ function snn_learn_dashboard_page() {
             </div>
         </div>
 
-        <!-- Row 1: Primary KPIs -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <!-- All KPIs — single stacked row -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-9 gap-4 mb-6">
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Course Enrollments</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $total_enrollments ) ?></p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Enrollments</p>
+                <p class="snn-kpi-value text-2xl xl:text-xl font-bold text-gray-800 mt-1"><?= number_format( $total_enrollments ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Last 30 Days</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $recent_enrollments ) ?><?= $enr_change_html ?></p>
+                <p class="snn-kpi-value text-2xl xl:text-xl font-bold text-gray-800 mt-1"><?= number_format( $recent_enrollments ) ?><?= $enr_change_html ?></p>
                 <?php if ( $prev_enrollments > 0 ) : ?>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">vs <?= number_format( $prev_enrollments ) ?> prev 30d</p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">vs <?= number_format( $prev_enrollments ) ?> prev</p>
                 <?php endif; ?>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Completion Rate</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $completion_rate, 1 ) ?>%</p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1"><?= number_format( $completed_items_all ) ?> / <?= number_format( $total_items_all ) ?> items</p>
+                <p class="snn-kpi-value text-2xl xl:text-xl font-bold text-gray-800 mt-1"><?= number_format( $completion_rate, 1 ) ?>%</p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1"><?= number_format( $completed_items_all ) ?>/<?= number_format( $total_items_all ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Weekly Active Users</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $weekly_active ) ?><?= $wau_change_html ?></p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Weekly Active</p>
+                <p class="snn-kpi-value text-2xl xl:text-xl font-bold text-gray-800 mt-1"><?= number_format( $weekly_active ) ?><?= $wau_change_html ?></p>
             </div>
-
-        </div>
-
-        <!-- Row 2: Mini Stats -->
-        <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">New Users</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $new_users ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">last 7 days</p>
+                <p class="snn-kpi-value text-2xl xl:text-xl font-bold text-gray-800 mt-1"><?= number_format( $new_users ) ?></p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">7 days</p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Gone Cold</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $gone_cold ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">14+ days inactive</p>
+                <p class="snn-kpi-value text-2xl xl:text-xl font-bold text-gray-800 mt-1"><?= number_format( $gone_cold ) ?></p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">14+ days</p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Active Courses</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $active_courses ) ?></p>
+                <p class="snn-kpi-value text-2xl xl:text-xl font-bold text-gray-800 mt-1"><?= number_format( $active_courses ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Days to Complete</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= $avg_days ? number_format( $avg_days, 1 ) : '&mdash;' ?></p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Days</p>
+                <p class="snn-kpi-value text-2xl xl:text-xl font-bold text-gray-800 mt-1"><?= $avg_days ? number_format( $avg_days, 1 ) : '&mdash;' ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Peak Enrollment Day</p>
-                <p class="snn-kpi-value text-xl font-bold text-gray-800 mt-1"><?= $peak_day ? esc_html( $peak_day->date ) : '&mdash;' ?></p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Peak Day</p>
+                <p class="snn-kpi-value text-lg xl:text-base font-bold text-gray-800 mt-1"><?= $peak_day ? esc_html( $peak_day->date ) : '&mdash;' ?></p>
                 <?php if ( $peak_day ): ?>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1"><?= number_format( $peak_day->cnt ) ?> enrollments</p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1"><?= number_format( $peak_day->cnt ) ?> enr.</p>
                 <?php endif; ?>
             </div>
 
