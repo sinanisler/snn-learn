@@ -698,12 +698,13 @@ function snn_learn_cert_hash( $user_id, $course_id ) {
 }
 
 // ============================================================
-// 11. SHORTCODES
+// 11. SHORTCODES & REST API
 // ============================================================
 
 require_once plugin_dir_path( __FILE__ ) . 'video-player.php';
 require_once plugin_dir_path( __FILE__ ) . 'shortcodes.php';
 require_once plugin_dir_path( __FILE__ ) . 'emails.php';
+require_once plugin_dir_path( __FILE__ ) . 'rest-api.php';    // Extended REST API (33 admin/reporting endpoints)
 
 // Third-party integrations — only load when the relevant theme/plugin is active
 if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() === 'bricks' ) {
