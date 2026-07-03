@@ -697,7 +697,7 @@ function snn_learn_dashboard_page() {
 
             <div class="snn-risk-card bg-white rounded-lg shadow-sm p-3">
                 <h2 class="snn-risk-title text-xs font-semibold text-red-600 mb-2">&#9888; At-Risk <span class="font-normal text-gray-400">(14+ days inactive, not completed)</span></h2>
-                <div class="overflow-auto max-h-44">
+                <div class="overflow-auto max-h-80">
                     <table class="snn-risk-table w-full text-sm">
                         <thead>
                             <tr class="text-left text-xs font-semibold text-gray-400 border-b">
