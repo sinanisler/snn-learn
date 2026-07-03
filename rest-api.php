@@ -48,28 +48,51 @@ function snn_learn_rest_table() {
 
 /**
  * Build a standardised user object with enrolment summary.
+ *
+ * @param WP_User $user      WordPress user object.
+ * @param int|null $course_id Optional course context.
+ * @param array|null $stats_map Optional pre-fetched stats map from snn_learn_rest_build_users_batch().
+ * @return array
  */
-function snn_learn_rest_build_user_object( $user, $course_id = null ) {
+function snn_learn_rest_build_user_object( $user, $course_id = null, $stats_map = null ) {
     global $wpdb;
     $t        = snn_learn_rest_table();
     $user_id  = (int) $user->ID;
-    $obj      = [
-        'id'           => $user_id,
-        'username'     => $user->user_login,
-        'display_name' => $user->display_name,
-        'email'        => $user->user_email,
-        'registered'   => $user->user_registered,
-        'group'        => get_user_meta( $user_id, 'snn_group', true ) ?: '',
-        'enrollments'  => (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM $t WHERE user_id = %d AND is_course = 1", $user_id
-        ) ),
-        'completed_courses' => (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM $t WHERE user_id = %d AND is_course = 1 AND completed_at IS NOT NULL", $user_id
-        ) ),
-        'last_activity_at'  => $wpdb->get_var( $wpdb->prepare(
-            "SELECT MAX(last_activity_at) FROM $t WHERE user_id = %d", $user_id
-        ) ),
-    ];
+
+    // Use pre-fetched batch stats if available — eliminates 3 queries per user.
+    if ( is_array( $stats_map ) && isset( $stats_map[ $user_id ] ) ) {
+        $stats = $stats_map[ $user_id ];
+        $obj   = [
+            'id'           => $user_id,
+            'username'     => $user->user_login,
+            'display_name' => $user->display_name,
+            'email'        => $user->user_email,
+            'registered'   => $user->user_registered,
+            'group'        => get_user_meta( $user_id, 'snn_group', true ) ?: '',
+            'enrollments'  => (int) $stats['enrollments'],
+            'completed_courses' => (int) $stats['completed_courses'],
+            'last_activity_at'  => $stats['last_activity_at'],
+        ];
+    } else {
+        // Fallback: individual queries (used for single-user views like admin_user_get).
+        $obj = [
+            'id'           => $user_id,
+            'username'     => $user->user_login,
+            'display_name' => $user->display_name,
+            'email'        => $user->user_email,
+            'registered'   => $user->user_registered,
+            'group'        => get_user_meta( $user_id, 'snn_group', true ) ?: '',
+            'enrollments'  => (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM $t WHERE user_id = %d AND is_course = 1", $user_id
+            ) ),
+            'completed_courses' => (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM $t WHERE user_id = %d AND is_course = 1 AND completed_at IS NOT NULL", $user_id
+            ) ),
+            'last_activity_at'  => $wpdb->get_var( $wpdb->prepare(
+                "SELECT MAX(last_activity_at) FROM $t WHERE user_id = %d", $user_id
+            ) ),
+        ];
+    }
 
     if ( $course_id ) {
         $obj['course_progress'] = snn_learn_calc_progress( $user_id, $course_id );
@@ -79,6 +102,63 @@ function snn_learn_rest_build_user_object( $user, $course_id = null ) {
     }
 
     return $obj;
+}
+
+/**
+ * Batch-fetch enrolment stats for multiple users in ONE query.
+ *
+ * Replaces 3×N individual get_var() calls with a single GROUP BY query.
+ * Returns a [user_id => ['enrollments' => int, 'completed_courses' => int, 'last_activity_at' => string|null]] map.
+ *
+ * @param int[] $user_ids
+ * @return array
+ */
+function snn_learn_rest_build_users_batch( array $user_ids ) {
+    global $wpdb;
+    $t = snn_learn_rest_table();
+
+    if ( empty( $user_ids ) ) {
+        return [];
+    }
+
+    // Sanitize and deduplicate
+    $user_ids = array_map( 'absint', array_unique( $user_ids ) );
+    $placeholders = implode( ',', array_fill( 0, count( $user_ids ), '%d' ) );
+
+    $rows = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT user_id,
+                    COUNT(*) AS total_enrollments,
+                    SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed_courses,
+                    MAX(last_activity_at) AS last_active
+             FROM $t
+             WHERE user_id IN ($placeholders) AND is_course = 1
+             GROUP BY user_id",
+            $user_ids
+        )
+    );
+
+    $map = [];
+    foreach ( $rows as $row ) {
+        $map[ (int) $row->user_id ] = [
+            'enrollments'       => (int) $row->total_enrollments,
+            'completed_courses' => (int) $row->completed_courses,
+            'last_activity_at'  => $row->last_active,
+        ];
+    }
+
+    // Fill in zero-stats for users with no enrolment rows
+    foreach ( $user_ids as $uid ) {
+        if ( ! isset( $map[ $uid ] ) ) {
+            $map[ $uid ] = [
+                'enrollments'       => 0,
+                'completed_courses' => 0,
+                'last_activity_at'  => null,
+            ];
+        }
+    }
+
+    return $map;
 }
 
 /**
@@ -503,8 +583,12 @@ function snn_learn_rest_admin_users_list( $request ) {
         )
     );
 
-    $data = array_map( function ( $u ) use ( $course ) {
-        return snn_learn_rest_build_user_object( $u, $course );
+    // Batch-fetch all stats in ONE query instead of 3×N queries
+    $user_ids = array_map( function ( $u ) { return (int) $u->ID; }, $users ?: [] );
+    $stats_map = snn_learn_rest_build_users_batch( $user_ids );
+
+    $data = array_map( function ( $u ) use ( $course, $stats_map ) {
+        return snn_learn_rest_build_user_object( $u, $course, $stats_map );
     }, $users ?: [] );
 
     return rest_ensure_response( [
@@ -1468,9 +1552,12 @@ function snn_learn_rest_admin_groups_users_list( $request ) {
         $name, $per, $offset
     ) );
 
-    $users = array_map( function ( $uid ) {
+    // Batch-fetch all stats in ONE query instead of 3×N queries
+    $stats_map = snn_learn_rest_build_users_batch( $user_ids );
+
+    $users = array_map( function ( $uid ) use ( $stats_map ) {
         $u = get_userdata( $uid );
-        return $u ? snn_learn_rest_build_user_object( $u ) : null;
+        return $u ? snn_learn_rest_build_user_object( $u, null, $stats_map ) : null;
     }, $user_ids ?: [] );
 
     return rest_ensure_response( [
@@ -1562,6 +1649,11 @@ function snn_learn_rest_admin_group_user_remove( $request ) {
 /**
  * GET /admin/analytics/overview
  * Aggregate KPIs for the dashboard.
+ *
+ * Uses a 5-minute transient cache to eliminate 8 sequential round-trips on
+ * repeated dashboard loads. Group filtering uses an INNER JOIN instead of
+ * an IN (SELECT...) subquery for faster index lookups.
+ * Queries merged: 8 queries → 6 (total+recent merged, items merged, weekly+cold merged).
  */
 function snn_learn_rest_admin_analytics_overview( $request ) {
     global $wpdb;
@@ -1569,83 +1661,94 @@ function snn_learn_rest_admin_analytics_overview( $request ) {
     $group    = $request->get_param( 'group' );
     $days     = (int) $request->get_param( 'days' );
 
+    // ── 5-minute transient cache ──────────────────────────────
+    $cache_key = 'snn_learn_analytics_overview_' . md5( serialize( [ $group, $days ] ) );
+    $cached    = get_transient( $cache_key );
+    if ( $cached !== false && is_array( $cached ) ) {
+        return rest_ensure_response( $cached );
+    }
+
     $ts_days   = time() - ( $days * DAY_IN_SECONDS );
     $ts_14     = time() - ( 14 * DAY_IN_SECONDS );
     $ts_7      = time() - (  7 * DAY_IN_SECONDS );
     $wp_offset = (int) wp_timezone()->getOffset( new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) ) );
 
-    // Build a group-scoped user subquery
-    $user_filter = '';
-    $user_args   = [];
+    // Build group-scoped JOIN clause (replaces IN (SELECT...) subquery)
+    $group_join = '';
+    $group_args = [];
     if ( $group ) {
-        $user_filter = "AND e.user_id IN (SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key = 'snn_group' AND meta_value = %s)";
-        $user_args[] = $group;
+        $group_join  = " INNER JOIN {$wpdb->usermeta} um_filter ON e.user_id = um_filter.user_id"
+                     . " AND um_filter.meta_key = %s AND um_filter.meta_value = %s";
+        $group_args  = [ 'snn_group', $group ];
     }
 
-    // Total enrolments
-    $args_total = array_merge( [ 1 ], $user_args );
-    $total_enrollments = (int) $wpdb->get_var(
-        $wpdb->prepare( "SELECT COUNT(*) FROM $t e WHERE e.is_course = %d $user_filter", $args_total )
-    );
+    // ── Query 1: Total + recent enrolments (merged) ───────────
+    $q1 = $wpdb->get_row( $wpdb->prepare(
+        "SELECT COUNT(*) AS total,
+                SUM(CASE WHEN e.enrolled_at >= %d THEN 1 ELSE 0 END) AS recent
+         FROM $t e
+         $group_join
+         WHERE e.is_course = 1",
+        array_merge( [ $ts_days ], $group_args )
+    ) );
+    $total_enrollments  = (int) ( $q1->total ?? 0 );
+    $recent_enrollments = (int) ( $q1->recent ?? 0 );
 
-    // Recent enrolments
-    $args_recent = array_merge( [ 1, $ts_days ], $user_args );
-    $recent_enrollments = (int) $wpdb->get_var(
-        $wpdb->prepare( "SELECT COUNT(*) FROM $t e WHERE e.is_course = %d AND e.enrolled_at >= %d $user_filter", $args_recent )
-    );
-
-    // Total + completed items (lessons + chapters)
-    $args_items = $user_args;
-    $total_items     = (int) $wpdb->get_var(
-        $wpdb->prepare( "SELECT COUNT(*) FROM $t e WHERE e.is_course = 0 $user_filter", $args_items )
-    );
-    $completed_items = (int) $wpdb->get_var(
-        $wpdb->prepare( "SELECT COUNT(*) FROM $t e WHERE e.is_course = 0 AND e.completed_at IS NOT NULL $user_filter", $args_items )
-    );
+    // ── Query 2: Total + completed items (merged) ─────────────
+    $q2 = $wpdb->get_row( $wpdb->prepare(
+        "SELECT COUNT(*) AS total_items,
+                SUM(CASE WHEN e.completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed_items
+         FROM $t e
+         $group_join
+         WHERE e.is_course = 0",
+        $group_args
+    ) );
+    $total_items     = (int) ( $q2->total_items ?? 0 );
+    $completed_items = (int) ( $q2->completed_items ?? 0 );
 
     // Completion rate
-    $completion_rate = 0;
-    if ( $total_items > 0 ) {
-        $completion_rate = round( ( $completed_items / $total_items ) * 100, 1 );
-    }
+    $completion_rate = $total_items > 0 ? round( ( $completed_items / $total_items ) * 100, 1 ) : 0;
 
-    // Weekly active users
-    $args_weekly = array_merge( [ $ts_7 ], $user_args );
-    $weekly_active = (int) $wpdb->get_var(
-        $wpdb->prepare( "SELECT COUNT(DISTINCT e.user_id) FROM $t e WHERE e.last_activity_at >= %d $user_filter", $args_weekly )
-    );
+    // ── Query 3: Weekly active + gone cold (merged) ───────────
+    // WHERE clause covers the union of both conditions to avoid a full table scan.
+    $q3_where = $group_join ? '' : 'WHERE e.last_activity_at >= %d OR (e.is_course = 1 AND e.last_activity_at < %d AND e.completed_at IS NULL)';
+    $q3_args  = $group_join ? array_merge( [ $ts_7, $ts_14 ], $group_args ) : [ $ts_7, $ts_14, $ts_7, $ts_14 ];
+    // Note: without group join, the WHERE placeholders are 4 (%d repeated for both sides of OR).
+    // With group join, the INNER JOIN acts as the row filter so no additional WHERE needed.
+    $q3 = $wpdb->get_row( $wpdb->prepare(
+        "SELECT COUNT(DISTINCT CASE WHEN e.last_activity_at >= %d THEN e.user_id END) AS weekly_active,
+                COUNT(DISTINCT CASE WHEN e.is_course = 1 AND e.last_activity_at < %d AND e.completed_at IS NULL THEN e.user_id END) AS gone_cold
+         FROM $t e
+         $group_join
+         $q3_where",
+        $q3_args
+    ) );
+    $weekly_active = (int) ( $q3->weekly_active ?? 0 );
+    $gone_cold     = (int) ( $q3->gone_cold ?? 0 );
 
-    // Gone cold = 14+ days inactive and not completed
-    $args_cold = array_merge( [ $ts_14 ], $user_args );
-    $gone_cold = (int) $wpdb->get_var(
-        $wpdb->prepare( "SELECT COUNT(DISTINCT e.user_id) FROM $t e WHERE e.is_course = 1 AND e.last_activity_at < %d AND e.completed_at IS NULL $user_filter", $args_cold )
-    );
+    // ── Query 4: Active courses ───────────────────────────────
+    $active_courses = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(DISTINCT e.course_id) FROM $t e $group_join WHERE e.is_course = 1",
+        $group_args
+    ) );
 
-    // Active courses (courses with any enrolment)
-    $active_courses = (int) $wpdb->get_var(
-        $wpdb->prepare( "SELECT COUNT(DISTINCT e.course_id) FROM $t e WHERE e.is_course = 1 $user_filter", $user_args )
-    );
+    // ── Query 5: Avg days to complete ─────────────────────────
+    $avg_days = (float) $wpdb->get_var( $wpdb->prepare(
+        "SELECT AVG(e.completed_at - e.enrolled_at) / 86400 FROM $t e $group_join"
+        . " WHERE e.is_course = 1 AND e.completed_at IS NOT NULL",
+        $group_args
+    ) );
 
-    // Avg days to complete
-    $avg_days = (float) $wpdb->get_var(
-        $wpdb->prepare( "SELECT AVG(e.completed_at - e.enrolled_at) / 86400 FROM $t e WHERE e.is_course = 1 AND e.completed_at IS NOT NULL $user_filter", $user_args )
-    );
-
-    // Peak enrolment day
+    // ── Query 6: Peak enrolment day (no group filter needed) ──
     $peak = $wpdb->get_row( $wpdb->prepare(
         "SELECT ((e.enrolled_at + %d) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt
          FROM $t e WHERE e.is_course = 1 GROUP BY day_ts ORDER BY cnt DESC LIMIT 1",
         $wp_offset
     ) );
+    $peak_date = $peak ? wp_date( 'Y-m-d', (int) $peak->day_ts - $wp_offset ) : null;
+    $peak_cnt  = $peak ? (int) $peak->cnt : 0;
 
-    $peak_date = null;
-    $peak_cnt  = 0;
-    if ( $peak ) {
-        $peak_date = wp_date( 'Y-m-d', (int) $peak->day_ts - $wp_offset );
-        $peak_cnt  = (int) $peak->cnt;
-    }
-
-    return rest_ensure_response( [
+    $result = [
         'total_enrollments'  => $total_enrollments,
         'recent_enrollments' => $recent_enrollments,
         'days_considered'    => $days,
@@ -1657,12 +1760,20 @@ function snn_learn_rest_admin_analytics_overview( $request ) {
         'active_courses'     => $active_courses,
         'avg_days_complete'  => $avg_days ? round( $avg_days, 1 ) : null,
         'peak_enrollment'    => [ 'date' => $peak_date, 'count' => $peak_cnt ],
-    ] );
+    ];
+
+    // Cache for 5 minutes (acceptable for dashboard KPIs)
+    set_transient( $cache_key, $result, 5 * MINUTE_IN_SECONDS );
+
+    return rest_ensure_response( $result );
 }
 
 /**
  * GET /admin/analytics/course/{id}
  * Deep dive on a single course.
+ *
+ * Pre-computes lesson completion counts via a LEFT JOIN instead of calling
+ * snn_learn_calc_progress() for every user (200 calls → 0).
  */
 function snn_learn_rest_admin_analytics_course( $request ) {
     global $wpdb;
@@ -1682,25 +1793,38 @@ function snn_learn_rest_admin_analytics_course( $request ) {
         "SELECT COUNT(*) FROM $t WHERE course_id = %d AND is_course = 1 AND completed_at IS NOT NULL", $course_id
     ) );
 
-    // Per-user progress breakdown
+    // Per-user progress breakdown with pre-computed lesson counts.
+    // LEFT JOIN on lesson enrolment rows with is_lesson=1 AND completed_at IS NOT NULL
+    // so the lesson completion count arrives as a column on the main row.
+    // All non-aggregated columns are in GROUP BY for MySQL ONLY_FULL_GROUP_BY compatibility.
     $rows = $wpdb->get_results( $wpdb->prepare(
         "SELECT e.user_id, u.display_name, u.user_email,
-                e.enrolled_at, e.completed_at, e.last_activity_at
+                e.enrolled_at, e.completed_at, e.last_activity_at,
+                COUNT(l.id) AS lessons_completed
          FROM $t e
          INNER JOIN {$wpdb->users} u ON u.ID = e.user_id
+         LEFT JOIN $t l ON l.user_id = e.user_id
+                        AND l.course_id = e.course_id
+                        AND l.is_lesson = 1
+                        AND l.completed_at IS NOT NULL
          WHERE e.course_id = %d AND e.is_course = 1
+         GROUP BY e.user_id, u.display_name, u.user_email,
+                  e.enrolled_at, e.completed_at, e.last_activity_at
          ORDER BY e.enrolled_at DESC
          LIMIT 200",
         $course_id
     ) );
 
     $users = array_map( function ( $r ) use ( $total_lessons ) {
-        $uid = (int) $r->user_id;
+        $lessons_done = (int) $r->lessons_completed;
+        $progress     = $total_lessons > 0 ? min( 100, (int) round( ( $lessons_done / $total_lessons ) * 100 ) ) : 0;
         return [
-            'user_id'          => $uid,
+            'user_id'          => (int) $r->user_id,
             'display_name'     => $r->display_name,
             'email'            => $r->user_email,
-            'progress'         => snn_learn_calc_progress( $uid, (int) $r->course_id ?? 0 ),
+            'lessons_completed'=> $lessons_done,
+            'total_lessons'    => $total_lessons,
+            'progress'         => $progress,
             'enrolled_at'      => snn_learn_rest_ts_iso( $r->enrolled_at ),
             'completed_at'     => snn_learn_rest_ts_iso( $r->completed_at ),
             'last_activity_at' => snn_learn_rest_ts_iso( $r->last_activity_at ),
@@ -1724,6 +1848,9 @@ function snn_learn_rest_admin_analytics_course( $request ) {
 /**
  * GET /admin/analytics/user/{id}
  * Deep dive on a single user across all their courses.
+ *
+ * Batches lesson completion counts via a LEFT JOIN instead of calling
+ * snn_learn_calc_progress() per course (20 queries → 1 query at ~20 courses).
  */
 function snn_learn_rest_admin_analytics_user( $request ) {
     global $wpdb;
@@ -1734,19 +1861,34 @@ function snn_learn_rest_admin_analytics_user( $request ) {
         return new WP_Error( 'not_found', 'User not found.', [ 'status' => 404 ] );
     }
 
+    // Single query: course enrolment rows joined with lesson completion counts.
+    // All non-aggregated columns are in GROUP BY for MySQL ONLY_FULL_GROUP_BY compatibility.
     $rows = $wpdb->get_results( $wpdb->prepare(
-        "SELECT course_id, enrolled_at, completed_at, last_activity_at FROM $t
-         WHERE user_id = %d AND is_course = 1 ORDER BY enrolled_at DESC",
+        "SELECT e.course_id, e.enrolled_at, e.completed_at, e.last_activity_at,
+                COUNT(l.id) AS lessons_completed
+         FROM $t e
+         LEFT JOIN $t l ON l.user_id = e.user_id
+                        AND l.course_id = e.course_id
+                        AND l.is_lesson = 1
+                        AND l.completed_at IS NOT NULL
+         WHERE e.user_id = %d AND e.is_course = 1
+         GROUP BY e.course_id, e.enrolled_at, e.completed_at, e.last_activity_at
+         ORDER BY e.enrolled_at DESC",
         $user_id
     ) );
 
-    $courses = array_map( function ( $r ) use ( $user_id ) {
-        $cid = (int) $r->course_id;
+    $courses = array_map( function ( $r ) {
+        $cid                = (int) $r->course_id;
+        $lessons_done       = (int) $r->lessons_completed;
+        $all_lessons        = snn_learn_get_course_lessons( $cid );
+        $total              = count( $all_lessons );
+        $progress           = $total > 0 ? min( 100, (int) round( ( $lessons_done / $total ) * 100 ) ) : 0;
         return [
             'course_id'        => $cid,
             'course_title'     => get_the_title( $cid ) ?: '(Untitled)',
-            'progress'         => snn_learn_calc_progress( $user_id, $cid ),
-            'total_lessons'    => count( snn_learn_get_course_lessons( $cid ) ),
+            'lessons_completed'=> $lessons_done,
+            'total_lessons'    => $total,
+            'progress'         => $progress,
             'enrolled_at'      => snn_learn_rest_ts_iso( $r->enrolled_at ),
             'completed_at'     => snn_learn_rest_ts_iso( $r->completed_at ),
             'last_activity_at' => snn_learn_rest_ts_iso( $r->last_activity_at ),
@@ -2018,6 +2160,9 @@ function snn_learn_rest_admin_bulk_assign_group( $request ) {
 /**
  * GET /admin/export/users
  * Export users CSV. Optional filters: group, course_id.
+ *
+ * Uses a single JOIN + GROUP BY query instead of per-row COUNT queries.
+ * 30,000 queries → 1 query at 10K users.
  */
 function snn_learn_rest_admin_export_users( $request ) {
     global $wpdb;
@@ -2030,22 +2175,34 @@ function snn_learn_rest_admin_export_users( $request ) {
     $args  = [];
 
     if ( $group ) {
-        $joins  .= " INNER JOIN {$wpdb->usermeta} um ON u.ID = um.user_id";
-        $where[] = 'um.meta_key = %s AND um.meta_value = %s';
+        $joins  .= " INNER JOIN {$wpdb->usermeta} um_group ON u.ID = um_group.user_id";
+        $where[] = 'um_group.meta_key = %s AND um_group.meta_value = %s';
         $args[]  = 'snn_group'; $args[] = $group;
     }
     if ( $course ) {
-        $joins  .= " LEFT JOIN $t e ON u.ID = e.user_id AND e.course_id = %d AND e.is_course = 1";
+        $joins  .= " INNER JOIN $t e_course ON u.ID = e_course.user_id AND e_course.course_id = %d AND e_course.is_course = 1";
         $args[]  = (int) $course;
-        $where[] = 'e.user_id IS NOT NULL';
     }
 
     $where_sql = $where ? 'WHERE ' . implode( ' AND ', $where ) : '';
 
+    // Single query: LEFT JOIN enrolment stats via GROUP BY.
+    // LEFT JOIN on usermeta for group avoids per-row get_user_meta().
+    // LEFT JOIN on enrolments computes COUNT/SUM in one pass.
+    // MAX() on usermeta value for MySQL ONLY_FULL_GROUP_BY compatibility.
     $rows = $wpdb->get_results(
         $wpdb->prepare(
-            "SELECT DISTINCT u.ID, u.display_name, u.user_email, u.user_registered
-             FROM {$wpdb->users} u $joins $where_sql
+            "SELECT u.ID, u.display_name, u.user_email, u.user_registered,
+                    MAX(COALESCE(um_sg.meta_value, '')) AS usr_group,
+                    COUNT(e_stats.id) AS enrollments,
+                    SUM(CASE WHEN e_stats.completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed_courses,
+                    MAX(e_stats.last_activity_at) AS last_active
+             FROM {$wpdb->users} u
+             $joins
+             LEFT JOIN {$wpdb->usermeta} um_sg ON u.ID = um_sg.user_id AND um_sg.meta_key = 'snn_group'
+             LEFT JOIN $t e_stats ON u.ID = e_stats.user_id AND e_stats.is_course = 1
+             $where_sql
+             GROUP BY u.ID
              ORDER BY u.display_name ASC
              LIMIT 10000",
             $args
@@ -2055,28 +2212,16 @@ function snn_learn_rest_admin_export_users( $request ) {
     $csv_headers = [ 'ID', 'Display Name', 'Email', 'Registered', 'Group', 'Enrollments', 'Completed Courses', 'Last Active' ];
     $csv_rows    = [];
 
-    foreach ( $rows ?: [] as $u ) {
-        $uid   = (int) $u->ID;
-        $group = get_user_meta( $uid, 'snn_group', true ) ?: '';
-        $enr   = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM $t WHERE user_id = %d AND is_course = 1", $uid
-        ) );
-        $done  = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM $t WHERE user_id = %d AND is_course = 1 AND completed_at IS NOT NULL", $uid
-        ) );
-        $last  = $wpdb->get_var( $wpdb->prepare(
-            "SELECT MAX(last_activity_at) FROM $t WHERE user_id = %d", $uid
-        ) );
-
+    foreach ( $rows ?: [] as $r ) {
         $csv_rows[] = [
-            $uid,
-            $u->display_name,
-            $u->user_email,
-            $u->user_registered,
-            $group,
-            $enr,
-            $done,
-            $last ? wp_date( 'Y-m-d H:i:s', (int) $last ) : '',
+            (int) $r->ID,
+            $r->display_name,
+            $r->user_email,
+            $r->user_registered,
+            $r->usr_group ?: '',
+            (int) $r->enrollments,
+            (int) $r->completed_courses,
+            $r->last_active ? wp_date( 'Y-m-d H:i:s', (int) $r->last_active ) : '',
         ];
     }
 
@@ -2157,6 +2302,9 @@ function snn_learn_rest_admin_export_enrollments( $request ) {
 /**
  * GET /admin/export/progress
  * Export per-user progress for a specific course. Filters: course_id (required), group.
+ *
+ * Uses a correlated subquery in SELECT instead of per-row COUNT queries.
+ * 10,000 queries → 1 query at 10K users.
  */
 function snn_learn_rest_admin_export_progress( $request ) {
     global $wpdb;
@@ -2178,10 +2326,18 @@ function snn_learn_rest_admin_export_progress( $request ) {
 
     $where_sql = 'WHERE ' . implode( ' AND ', $where );
 
+    // Subquery in SELECT: MySQL evaluates the correlated subquery once per row
+    // internally with far less overhead than 10,000 separate PHP→MySQL round-trips.
     $rows = $wpdb->get_results(
         $wpdb->prepare(
             "SELECT u.display_name, u.user_email, e.user_id,
-                    e.enrolled_at, e.completed_at
+                    e.enrolled_at, e.completed_at,
+                    (SELECT COUNT(*)
+                     FROM {$wpdb->prefix}snn_learn_enrollments l
+                     WHERE l.user_id = e.user_id
+                       AND l.course_id = e.course_id
+                       AND l.is_lesson = 1
+                       AND l.completed_at IS NOT NULL) AS lessons_completed
              FROM $t e
              INNER JOIN {$wpdb->users} u ON u.ID = e.user_id
              $joins
@@ -2194,12 +2350,9 @@ function snn_learn_rest_admin_export_progress( $request ) {
 
     $csv_headers = [ 'Name', 'Email', 'Progress %', 'Lessons Completed', 'Total Lessons', 'Enrolled Date', 'Completed Date', 'Status' ];
     $csv_rows    = [];
+
     foreach ( $rows ?: [] as $r ) {
-        $uid   = (int) $r->user_id;
-        $completed_count = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM $t WHERE user_id = %d AND course_id = %d AND is_lesson = 1 AND completed_at IS NOT NULL",
-            $uid, $course_id
-        ) );
+        $completed_count = (int) $r->lessons_completed;
         $progress = $total > 0 ? round( ( $completed_count / $total ) * 100, 1 ) : 0;
 
         $csv_rows[] = [

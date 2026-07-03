@@ -45,7 +45,8 @@ function snn_learn_create_table() {
         KEY idx_is_course (is_course),
         KEY idx_is_lesson (is_lesson),
         KEY idx_user_course (user_id, course_id),
-        KEY idx_course_activity (is_course, last_activity_at)
+        KEY idx_course_activity (is_course, last_activity_at),
+        KEY idx_user_course_status (user_id, is_course, completed_at, last_activity_at)
     ) $charset;";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -55,9 +56,9 @@ register_activation_hook( __FILE__, 'snn_learn_create_table' );
 
 // Auto-create / upgrade table on every plugin load — safe to run repeatedly (dbDelta is idempotent)
 add_action( 'plugins_loaded', function () {
-    if ( get_option( 'snn_learn_db_version' ) !== '2.3' ) {
+    if ( get_option( 'snn_learn_db_version' ) !== '2.4' ) {
         snn_learn_create_table();
-        update_option( 'snn_learn_db_version', '2.3' );
+        update_option( 'snn_learn_db_version', '2.4' );
     }
 } );
 
@@ -174,6 +175,11 @@ function snn_learn_handle_uninstall_data() {
 
     // Clear any cached values
     wp_cache_flush();
+
+    // Delete any plugin transients (stored as _transient_* / _transient_timeout_* in options)
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_snn_learn_analytics_%' OR option_name LIKE '_transient_timeout_snn_learn_analytics_%'"
+    );
 
     // Redirect back to plugins page with a success flag
     wp_safe_redirect( add_query_arg( 'snn_learn_cleared', '1', admin_url( 'plugins.php' ) ) );
