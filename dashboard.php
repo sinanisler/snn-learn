@@ -647,10 +647,7 @@ function snn_learn_dashboard_page() {
             </div>
 
             <div class="snn-perf-card bg-white rounded-lg shadow-sm p-3">
-                <div class="flex items-center justify-between mb-2">
-                    <h2 class="snn-perf-title text-xs font-semibold text-gray-500">Course Performance</h2>
-                    <button id="snn-export-progress-btn" data-export-url="<?= esc_url( rest_url( 'snn-learn/v1/admin/export/progress' ) . ( $group_filter ? '?group=' . urlencode( $group_filter ) : '' ) ) ?>" data-nonce="<?= esc_attr( wp_create_nonce( 'wp_rest' ) ) ?>" class="text-xs text-blue-600 hover:underline font-medium bg-transparent border-0 cursor-pointer p-0">CSV</button>
-                </div>
+                <h2 class="snn-perf-title text-xs font-semibold text-gray-500 mb-2">Course Performance</h2>
                 <div class="overflow-auto max-h-40">
                     <table class="snn-perf-table w-full text-sm">
                         <thead>
@@ -855,13 +852,6 @@ function snn_learn_dashboard_page() {
         if (exportBtn) {
             exportBtn.addEventListener('click', function () {
                 snnExportCSV(exportBtn, exportBtn.getAttribute('data-export-url'), exportBtn.getAttribute('data-nonce'));
-            });
-        }
-
-        var exportProgressBtn = document.getElementById('snn-export-progress-btn');
-        if (exportProgressBtn) {
-            exportProgressBtn.addEventListener('click', function () {
-                snnExportCSV(exportProgressBtn, exportProgressBtn.getAttribute('data-export-url'), exportProgressBtn.getAttribute('data-nonce'));
             });
         }
 
