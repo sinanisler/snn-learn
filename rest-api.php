@@ -1650,10 +1650,10 @@ function snn_learn_rest_admin_group_user_remove( $request ) {
  * GET /admin/analytics/overview
  * Aggregate KPIs for the dashboard.
  *
- * Uses a 5-minute transient cache to eliminate 8 sequential round-trips on
- * repeated dashboard loads. Group filtering uses an INNER JOIN instead of
+ * Uses a 5-minute transient cache to eliminate repeated round-trips on
+ * dashboard reloads. Group filtering uses an INNER JOIN instead of
  * an IN (SELECT...) subquery for faster index lookups.
- * Queries merged: 8 queries → 6 (total+recent merged, items merged, weekly+cold merged).
+ * Queries merged where trivial: 8 → 7 (total+recent, items completed).
  */
 function snn_learn_rest_admin_analytics_overview( $request ) {
     global $wpdb;
@@ -1709,37 +1709,33 @@ function snn_learn_rest_admin_analytics_overview( $request ) {
     // Completion rate
     $completion_rate = $total_items > 0 ? round( ( $completed_items / $total_items ) * 100, 1 ) : 0;
 
-    // ── Query 3: Weekly active + gone cold (merged) ───────────
-    // WHERE clause covers the union of both conditions to avoid a full table scan.
-    $q3_where = $group_join ? '' : 'WHERE e.last_activity_at >= %d OR (e.is_course = 1 AND e.last_activity_at < %d AND e.completed_at IS NULL)';
-    $q3_args  = $group_join ? array_merge( [ $ts_7, $ts_14 ], $group_args ) : [ $ts_7, $ts_14, $ts_7, $ts_14 ];
-    // Note: without group join, the WHERE placeholders are 4 (%d repeated for both sides of OR).
-    // With group join, the INNER JOIN acts as the row filter so no additional WHERE needed.
-    $q3 = $wpdb->get_row( $wpdb->prepare(
-        "SELECT COUNT(DISTINCT CASE WHEN e.last_activity_at >= %d THEN e.user_id END) AS weekly_active,
-                COUNT(DISTINCT CASE WHEN e.is_course = 1 AND e.last_activity_at < %d AND e.completed_at IS NULL THEN e.user_id END) AS gone_cold
-         FROM $t e
-         $group_join
-         $q3_where",
-        $q3_args
+    // ── Query 3: Weekly active users (last 7 days) ────────────
+    $weekly_active = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(DISTINCT e.user_id) FROM $t e $group_join WHERE e.last_activity_at >= %d",
+        array_merge( [ $ts_7 ], $group_args )
     ) );
-    $weekly_active = (int) ( $q3->weekly_active ?? 0 );
-    $gone_cold     = (int) ( $q3->gone_cold ?? 0 );
 
-    // ── Query 4: Active courses ───────────────────────────────
+    // ── Query 4: Gone cold (14+ days inactive, not completed) ─
+    $gone_cold = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(DISTINCT e.user_id) FROM $t e $group_join
+         WHERE e.is_course = 1 AND e.last_activity_at < %d AND e.completed_at IS NULL",
+        array_merge( [ $ts_14 ], $group_args )
+    ) );
+
+    // ── Query 5: Active courses ───────────────────────────────
     $active_courses = (int) $wpdb->get_var( $wpdb->prepare(
         "SELECT COUNT(DISTINCT e.course_id) FROM $t e $group_join WHERE e.is_course = 1",
         $group_args
     ) );
 
-    // ── Query 5: Avg days to complete ─────────────────────────
+    // ── Query 6: Avg days to complete ─────────────────────────
     $avg_days = (float) $wpdb->get_var( $wpdb->prepare(
         "SELECT AVG(e.completed_at - e.enrolled_at) / 86400 FROM $t e $group_join"
         . " WHERE e.is_course = 1 AND e.completed_at IS NOT NULL",
         $group_args
     ) );
 
-    // ── Query 6: Peak enrolment day (no group filter needed) ──
+    // ── Query 7: Peak enrolment day (no group filter needed) ──
     $peak = $wpdb->get_row( $wpdb->prepare(
         "SELECT ((e.enrolled_at + %d) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt
          FROM $t e WHERE e.is_course = 1 GROUP BY day_ts ORDER BY cnt DESC LIMIT 1",
