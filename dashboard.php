@@ -669,7 +669,7 @@ function snn_learn_dashboard_page() {
                         <tr class="border-b border-gray-100 hover:bg-gray-50">
                             <td class="py-2 pr-4 text-blue-600 font-medium">
                                 <?php if ( $title ) : ?>
-                                <a href="<?= esc_url( $edit_url ?: '#' ) ?>" class="hover:underline" title="Edit course"><?= esc_html( $title ) ?></a>
+                                <a href="<?= esc_url( $course_url ?: '#' ) ?>" class="hover:underline" title="Edit course" target="_blank"><?= esc_html( $title ) ?></a>
                                 <?php else : ?>
                                 #<?= $c->course_id ?>
                                 <?php endif; ?>
