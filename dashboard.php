@@ -227,139 +227,261 @@ function snn_learn_dashboard_page() {
     $t = $wpdb->prefix . 'snn_learn_enrollments';
 
     // Pre-calculate timestamps in PHP so MySQL receives plain integers.
-    // Comparing two integers is the fastest operation a DB can do and keeps
-    // queries sargable — MySQL can use the idx_enrolled_at / idx_last_activity_at
-    // indexes without wrapping the column in a function.
+    $ts_60_days_ago = time() - ( 60 * DAY_IN_SECONDS );
     $ts_30_days_ago = time() - ( 30 * DAY_IN_SECONDS );
     $ts_14_days_ago = time() - ( 14 * DAY_IN_SECONDS );
     $ts_7_days_ago  = time() - (  7 * DAY_IN_SECONDS );
 
-    // WordPress timezone offset in seconds — used to shift Unix timestamps
-    // so that day-boundary grouping (DIV 86400) aligns with the site's
-    // configured timezone (Settings → General → Timezone).
+    // WordPress timezone offset in seconds.
     $wp_utc_offset = (int) wp_timezone()->getOffset( new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) ) );
 
-    // ---- KPI Queries (all use indexed is_course / is_lesson columns) ----
-    $total_enrollments  = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE is_course = 1" );
-    $recent_enrollments = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $t WHERE is_course = 1 AND enrolled_at >= %d", $ts_30_days_ago ) );
-
-    // Total items (Lessons + Chapters) vs Completed items (Lessons + Chapters)
-    // Exclude course-level rows via is_course=0 to get the true completion pool.
-    $total_items_all     = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE is_course = 0" );
-    $completed_items_all = (int)   $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE is_course = 0 AND completed_at IS NOT NULL" );
-
-    // ---- Optimized: Single query for BOTH KPI completion rate AND course performance ----
-    // Uses is_lesson = 1 so that chapter auto-completion rows are NOT counted.
-    // This fixes the 128%+ completion-rate bug where chapters inflated the numerator.
-    $all_user_done = $wpdb->get_results(
-        "SELECT course_id, user_id, COUNT(completed_at) as done
-         FROM $t
-         WHERE is_lesson = 1 AND completed_at IS NOT NULL
-         GROUP BY course_id, user_id"
-    );
-
-    // --- Build KPI completion rate ---
-    $all_rates = [];
-    $done_by_course = []; // Also reused for the Course Performance table below
-    foreach ( $all_user_done as $stat ) {
-        $cid         = (int) $stat->course_id;
-        $total_items = count( snn_learn_get_course_lessons( $cid ) );
-        $all_rates[] = $total_items > 0 ? ( $stat->done / $total_items ) * 100 : 0;
-        $done_by_course[ $cid ][] = (int) $stat->done;
+    // ---- Group / Department filter ----
+    $group_filter = isset( $_GET['snn_group'] ) ? sanitize_text_field( wp_unslash( $_GET['snn_group'] ) ) : '';
+    $group_join   = '';
+    $group_where  = '';
+    $group_args   = [];
+    if ( $group_filter ) {
+        $group_join  = " INNER JOIN {$wpdb->usermeta} um_filter ON e.user_id = um_filter.user_id";
+        $group_where = ' AND um_filter.meta_key = %s AND um_filter.meta_value = %s';
+        $group_args  = [ 'snn_group', $group_filter ];
     }
 
-    // Account for users who started a course but haven't completed any lessons (0% progress)
-    $total_pairs = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $t WHERE is_course = 1" );
-    if ( $total_pairs > count( $all_rates ) ) {
-        $all_rates = array_merge( $all_rates, array_fill( 0, $total_pairs - count( $all_rates ), 0 ) );
-    }
-    $completion_rate = $all_rates ? round( array_sum( $all_rates ) / count( $all_rates ), 1 ) : 0;
+    // ---- 3-minute transient cache (busted on enrollment/completion hooks) ----
+    $cache_key = 'snn_dashboard_v2_' . md5( $group_filter . get_current_user_id() );
+    $force     = isset( $_GET['snn_refresh'] );
+    $cached    = $force ? false : get_transient( $cache_key );
 
-    $weekly_active      = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE last_activity_at >= %d", $ts_7_days_ago ) );
-    $gone_cold          = (int)   $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(DISTINCT user_id) FROM $t WHERE is_course = 1 AND last_activity_at < %d AND completed_at IS NULL", $ts_14_days_ago ) );
-    $active_courses     = (int)   $wpdb->get_var( "SELECT COUNT(DISTINCT course_id) FROM $t WHERE is_course = 1" );
-    $avg_days           = (float) $wpdb->get_var( "SELECT AVG(completed_at - enrolled_at) / 86400 FROM $t WHERE is_course = 1 AND completed_at IS NOT NULL" );
+    if ( $cached !== false && is_array( $cached ) ) {
+        extract( $cached );
+    } else {
 
-    // Peak enrollment day — add is_course=1 to narrow the set
-    $peak_day = $wpdb->get_row( $wpdb->prepare(
-        "SELECT ((enrolled_at + %d) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt
-         FROM $t WHERE is_course = 1 GROUP BY day_ts ORDER BY cnt DESC LIMIT 1",
-        $wp_utc_offset
-    ) );
-    if ( $peak_day ) {
-        $peak_day->date = wp_date( 'Y-m-d', (int) $peak_day->day_ts - $wp_utc_offset );
-    }
+        // ---- KPI: Total + Recent enrollments (merged) ----
+        $q_enr = $wpdb->get_row( $wpdb->prepare(
+            "SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN e.enrolled_at >= %d THEN 1 ELSE 0 END) AS recent,
+                    SUM(CASE WHEN e.enrolled_at >= %d AND e.enrolled_at < %d THEN 1 ELSE 0 END) AS prev_recent
+             FROM $t e $group_join
+             WHERE e.is_course = 1 $group_where",
+            array_merge( [ $ts_30_days_ago, $ts_60_days_ago, $ts_30_days_ago ], $group_args )
+        ) );
+        $total_enrollments  = (int) ( $q_enr->total ?? 0 );
+        $recent_enrollments = (int) ( $q_enr->recent ?? 0 );
+        $prev_enrollments   = (int) ( $q_enr->prev_recent ?? 0 );
 
-    // ---- Course Enrollment Trend (last 30 days) ----
-    $trend_rows   = $wpdb->get_results( $wpdb->prepare(
-        "SELECT ((enrolled_at + %d) DIV 86400) AS day_key, COUNT(*) AS cnt
-         FROM $t
-         WHERE is_course = 1
-           AND enrolled_at >= %d
-         GROUP BY day_key
-         ORDER BY day_key DESC
-         LIMIT 30",
-        $wp_utc_offset,
-        $ts_30_days_ago
-    ) );
-    $trend_rows   = array_reverse( $trend_rows );
-    $trend_labels = array_map( function ( $row ) use ( $wp_utc_offset ) {
-        return wp_date( 'Y-m-d', (int) $row->day_key * 86400 - $wp_utc_offset );
-    }, $trend_rows );
-    $trend_data   = array_map( function ( $row ) { return (int) $row->cnt; }, $trend_rows );
+        // ---- KPI: Total items + Completed items (simple ratio, no per-user averaging) ----
+        $q_items = $wpdb->get_row( $wpdb->prepare(
+            "SELECT COUNT(*) AS total_items,
+                    SUM(CASE WHEN e.completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed_items
+             FROM $t e $group_join
+             WHERE e.is_course = 0 $group_where",
+            $group_args
+        ) );
+        $total_items_all     = (int) ( $q_items->total_items ?? 0 );
+        $completed_items_all = (int) ( $q_items->completed_items ?? 0 );
+        $completion_rate     = $total_items_all > 0 ? round( ( $completed_items_all / $total_items_all ) * 100, 1 ) : 0;
 
-    // ---- Course performance (reuses $done_by_course built above — no extra DB queries) ----
-    $course_perf_base = $wpdb->get_results(
-        "SELECT course_id,
-                COUNT(DISTINCT user_id) AS enrolled
-         FROM $t
-         WHERE is_course = 1
-         GROUP BY course_id
-         ORDER BY enrolled DESC
-         LIMIT 50"
-    );
-    $courses_perf = [];
-    foreach ( $course_perf_base as $c ) {
-        $course_id = (int) $c->course_id;
+        // ---- KPI: Weekly Active Users + previous period ----
+        $weekly_active = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT e.user_id) FROM $t e $group_join WHERE e.last_activity_at >= %d $group_where",
+            array_merge( [ $ts_7_days_ago ], $group_args )
+        ) );
+        $prev_wau = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT e.user_id) FROM $t e $group_join WHERE e.last_activity_at >= %d AND e.last_activity_at < %d $group_where",
+            array_merge( [ $ts_14_days_ago, $ts_7_days_ago ], $group_args )
+        ) );
 
-        $total_items = count( snn_learn_get_course_lessons( $course_id ) );
-        $dones       = $done_by_course[ $course_id ] ?? []; // Reuses the single query!
+        // ---- KPI: New Users (first enrollment in last 7 days) ----
+        $new_users = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT e.user_id) FROM $t e $group_join
+             WHERE e.is_course = 1 AND e.enrolled_at >= %d $group_where
+               AND e.user_id NOT IN (
+                   SELECT e2.user_id FROM {$wpdb->prefix}snn_learn_enrollments e2
+                   WHERE e2.is_course = 1 AND e2.enrolled_at < %d
+               )",
+            array_merge( [ $ts_7_days_ago, $ts_7_days_ago ], $group_args )
+        ) );
 
-        $rates = [];
-        foreach ( $dones as $done ) {
-            $rates[] = $total_items > 0 ? ( $done / $total_items ) * 100 : 0;
+        // ---- KPI: Gone Cold, Active Courses, Avg Days ----
+        $gone_cold      = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT e.user_id) FROM $t e $group_join WHERE e.is_course = 1 AND e.last_activity_at < %d AND e.completed_at IS NULL $group_where",
+            array_merge( [ $ts_14_days_ago ], $group_args )
+        ) );
+        $active_courses = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT e.course_id) FROM $t e $group_join WHERE e.is_course = 1 $group_where",
+            $group_args
+        ) );
+        $avg_days       = (float) $wpdb->get_var( $wpdb->prepare(
+            "SELECT AVG(e.completed_at - e.enrolled_at) / 86400 FROM $t e $group_join WHERE e.is_course = 1 AND e.completed_at IS NOT NULL $group_where",
+            $group_args
+        ) );
+
+        // ---- Peak enrollment day (last 365 days, not all-time) ----
+        $ts_year_ago = time() - ( 365 * DAY_IN_SECONDS );
+        $peak_day = $wpdb->get_row( $wpdb->prepare(
+            "SELECT ((e.enrolled_at + %d) DIV 86400) * 86400 AS day_ts, COUNT(*) AS cnt
+             FROM $t e $group_join
+             WHERE e.is_course = 1 AND e.enrolled_at >= %d $group_where
+             GROUP BY day_ts ORDER BY cnt DESC LIMIT 1",
+            array_merge( [ $wp_utc_offset, $ts_year_ago ], $group_args )
+        ) );
+        if ( $peak_day ) {
+            $peak_day->date = wp_date( 'Y-m-d', (int) $peak_day->day_ts - $wp_utc_offset );
         }
 
-        // Fill in 0% for enrolled users with no lesson activity
-        if ( count( $rates ) < $c->enrolled ) {
-            $rates = array_merge( $rates, array_fill( 0, (int) $c->enrolled - count( $rates ), 0 ) );
-        }
+        // ---- Course Enrollment Trend (last 30 days) ----
+        $trend_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ((e.enrolled_at + %d) DIV 86400) AS day_key, COUNT(*) AS cnt
+             FROM $t e $group_join
+             WHERE e.is_course = 1 AND e.enrolled_at >= %d $group_where
+             GROUP BY day_key ORDER BY day_key DESC LIMIT 30",
+            array_merge( [ $wp_utc_offset, $ts_30_days_ago ], $group_args )
+        ) );
+        $trend_rows   = array_reverse( $trend_rows ?: [] );
+        $trend_labels = array_map( function ( $row ) use ( $wp_utc_offset ) {
+            return wp_date( 'Y-m-d', (int) $row->day_key * 86400 - $wp_utc_offset );
+        }, $trend_rows );
+        $trend_data   = array_map( function ( $row ) { return (int) $row->cnt; }, $trend_rows );
 
-        // Compute completed count from $dones (only lesson completions, no chapters)
-        $c->completed = array_sum( $dones );
-        $c->rate      = $rates ? round( array_sum( $rates ) / count( $rates ), 1 ) : 0;
-        $courses_perf[] = $c;
+        // ---- Completion Trend (last 30 days, lesson completions per day) ----
+        $comp_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ((e.completed_at + %d) DIV 86400) AS day_key, COUNT(*) AS cnt
+             FROM $t e $group_join
+             WHERE e.is_lesson = 1 AND e.completed_at IS NOT NULL AND e.completed_at >= %d $group_where
+             GROUP BY day_key ORDER BY day_key DESC LIMIT 30",
+            array_merge( [ $wp_utc_offset, $ts_30_days_ago ], $group_args )
+        ) );
+        $comp_rows     = array_reverse( $comp_rows ?: [] );
+        // Build a map of day→completions for alignment with trend_labels
+        $comp_map = [];
+        foreach ( $comp_rows as $r ) {
+            $comp_map[ wp_date( 'Y-m-d', (int) $r->day_key * 86400 - $wp_utc_offset ) ] = (int) $r->cnt;
+        }
+        $comp_data = array_map( function ( $label ) use ( $comp_map ) {
+            return $comp_map[ $label ] ?? 0;
+        }, $trend_labels );
+
+        // ---- Course performance (fixed: shows actual course completions + lesson completions) ----
+        $course_perf_base = $wpdb->get_results( $wpdb->prepare(
+            "SELECT e.course_id,
+                    COUNT(DISTINCT e.user_id) AS enrolled,
+                    SUM(CASE WHEN e.completed_at IS NOT NULL THEN 1 ELSE 0 END) AS course_completed,
+                    COALESCE(lc.lesson_done, 0) AS lesson_completions
+             FROM $t e
+             LEFT JOIN (
+                 SELECT course_id, COUNT(*) AS lesson_done
+                 FROM $t
+                 WHERE is_lesson = 1 AND completed_at IS NOT NULL
+                 GROUP BY course_id
+             ) lc ON lc.course_id = e.course_id
+             WHERE e.is_course = 1
+             GROUP BY e.course_id
+             ORDER BY enrolled DESC
+             LIMIT 50"
+        ) );
+        $courses_perf = array_map( function ( $c ) {
+            $cid          = (int) $c->course_id;
+            $total_items  = count( snn_learn_get_course_lessons( $cid ) );
+            $c->course_completed    = (int) $c->course_completed;
+            $c->lesson_completions  = (int) $c->lesson_completions;
+            $c->rate = $c->enrolled > 0 ? round( ( $c->course_completed / $c->enrolled ) * 100, 1 ) : 0;
+            return $c;
+        }, $course_perf_base ?: [] );
+
+        // ---- At-risk students ----
+        $at_risk = $wpdb->get_results( $wpdb->prepare(
+            "SELECT e.user_id, e.course_id, e.last_activity_at
+             FROM $t e $group_join
+             WHERE e.is_course = 1 AND e.last_activity_at < %d AND e.completed_at IS NULL $group_where
+             ORDER BY e.last_activity_at ASC LIMIT 20",
+            array_merge( [ $ts_14_days_ago ], $group_args )
+        ) );
+
+        // ---- Recent activity feed (lesson-level + course-level, richer feed) ----
+        $recent_activity = $wpdb->get_results( $wpdb->prepare(
+            "(SELECT e.user_id, e.course_id, e.post_id, e.last_activity_at, e.completed_at,
+                     'lesson_completed' AS event_type, p.post_title AS item_title
+              FROM $t e
+              INNER JOIN {$wpdb->posts} p ON p.ID = e.post_id
+              WHERE e.is_lesson = 1 AND e.completed_at IS NOT NULL
+              ORDER BY e.completed_at DESC LIMIT 15)
+             UNION ALL
+             (SELECT e.user_id, e.course_id, e.post_id, e.last_activity_at, e.completed_at,
+                     'enrolled' AS event_type, '' AS item_title
+              FROM $t e
+              WHERE e.is_course = 1
+              ORDER BY e.enrolled_at DESC LIMIT 10)
+             ORDER BY last_activity_at DESC LIMIT 20"
+        ) );
+
+        // ---- Store in cache (3 minutes) ----
+        set_transient( $cache_key, compact(
+            'total_enrollments', 'recent_enrollments', 'prev_enrollments',
+            'total_items_all', 'completed_items_all', 'completion_rate',
+            'weekly_active', 'prev_wau', 'new_users',
+            'gone_cold', 'active_courses', 'avg_days',
+            'peak_day',
+            'trend_labels', 'trend_data', 'comp_data',
+            'courses_perf',
+            'at_risk',
+            'recent_activity'
+        ), 3 * MINUTE_IN_SECONDS );
     }
 
-    // ---- At-risk students ----
-    $at_risk = $wpdb->get_results( $wpdb->prepare(
-        "SELECT user_id, course_id, last_activity_at FROM $t
-         WHERE is_course = 1 AND last_activity_at < %d AND completed_at IS NULL
-         ORDER BY last_activity_at ASC LIMIT 20",
-        $ts_14_days_ago
-    ) );
+    // ---- Period-over-period change helpers ----
+    $enr_change_html = '';
+    if ( $prev_enrollments > 0 ) {
+        $pct = round( ( ( $recent_enrollments - $prev_enrollments ) / $prev_enrollments ) * 100, 1 );
+        $cls = $pct >= 0 ? 'text-green-600' : 'text-red-500';
+        $arrow = $pct >= 0 ? '↑' : '↓';
+        $enr_change_html = "<span class=\"$cls text-xs font-semibold ml-1\">{$arrow} " . abs( $pct ) . "%</span>";
+    }
+    $wau_change_html = '';
+    if ( $prev_wau > 0 ) {
+        $pct = round( ( ( $weekly_active - $prev_wau ) / $prev_wau ) * 100, 1 );
+        $cls = $pct >= 0 ? 'text-green-600' : 'text-red-500';
+        $arrow = $pct >= 0 ? '↑' : '↓';
+        $wau_change_html = "<span class=\"$cls text-xs font-semibold ml-1\">{$arrow} " . abs( $pct ) . "%</span>";
+    }
 
-    // ---- Recent activity feed ----
-    $recent_activity = $wpdb->get_results(
-        "SELECT user_id, course_id, enrolled_at, completed_at, last_activity_at
-         FROM $t WHERE is_course = 1
-         ORDER BY last_activity_at DESC LIMIT 20"
-    );
+    // ---- Group list for filter dropdown ----
+    $group_data   = get_option( 'snn_groups_list', [] );
+    $group_names  = [];
+    if ( ! empty( $group_data ) ) {
+        $group_names = array_keys( $group_data );
+    } else {
+        // Fallback: distinct group values from user meta
+        $group_names = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'snn_group' AND meta_value != '' ORDER BY meta_value ASC" );
+    }
     ?>
     <div class="snn-learn-dashboard">
     <div class="p-6">
 
-        <h1 class="text-2xl font-bold text-gray-800 mb-6">SNN Learn &mdash; Dashboard</h1>
+        <!-- Header Row: Title + Group Filter + Refresh + Export -->
+        <div class="flex flex-wrap items-center justify-between mb-6 gap-4">
+            <h1 class="text-2xl font-bold text-gray-800">SNN Learn &mdash; Dashboard</h1>
+            <div class="flex items-center gap-3 flex-wrap">
+                <?php if ( ! empty( $group_names ) ) : ?>
+                <form method="get" action="" class="flex items-center gap-2" id="snn-group-form">
+                    <input type="hidden" name="page" value="snn-learn">
+                    <label for="snn_group_select" class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Group</label>
+                    <select id="snn_group_select" name="snn_group" onchange="document.getElementById('snn-group-form').submit()" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">All Users</option>
+                        <?php foreach ( $group_names as $gn ) : ?>
+                            <option value="<?= esc_attr( $gn ) ?>" <?= selected( $group_filter, $gn, false ) ?>><?= esc_html( $gn ) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </form>
+                <?php endif; ?>
+                <button id="snn-refresh-btn" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors" title="Refresh dashboard data">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    Refresh
+                </button>
+                <a href="<?= esc_url( rest_url( 'snn-learn/v1/admin/export/enrollments' ) . ( $group_filter ? '?group=' . urlencode( $group_filter ) : '' ) ) ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors no-underline" title="Export enrollments CSV">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    Export CSV
+                </a>
+            </div>
+        </div>
 
         <!-- Row 1: Primary KPIs -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
@@ -371,24 +493,33 @@ function snn_learn_dashboard_page() {
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Last 30 Days</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $recent_enrollments ) ?></p>
+                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $recent_enrollments ) ?><?= $enr_change_html ?></p>
+                <?php if ( $prev_enrollments > 0 ) : ?>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">vs <?= number_format( $prev_enrollments ) ?> prev 30d</p>
+                <?php endif; ?>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Completion Rate</p>
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Completion Rate</p>
                 <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $completion_rate, 1 ) ?>%</p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">avg per user &mdash; <?= number_format( $completed_items_all ) ?> / <?= number_format( $total_items_all ) ?> total</p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1"><?= number_format( $completed_items_all ) ?> / <?= number_format( $total_items_all ) ?> items</p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Weekly Active Users</p>
-                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $weekly_active ) ?></p>
+                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $weekly_active ) ?><?= $wau_change_html ?></p>
             </div>
 
         </div>
 
         <!-- Row 2: Mini Stats -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+
+            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">New Users</p>
+                <p class="snn-kpi-value text-3xl font-bold text-gray-800 mt-1"><?= number_format( $new_users ) ?></p>
+                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">last 7 days</p>
+            </div>
 
             <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-5 ">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Gone Cold</p>
@@ -420,19 +551,22 @@ function snn_learn_dashboard_page() {
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
 
             <div class="snn-chart-card bg-white rounded-xl shadow-sm p-5">
-                <h2 class="snn-chart-title text-sm font-semibold text-gray-600 mb-4">Course Enrollment Trend &mdash; Last 30 Days</h2>
+                <h2 class="snn-chart-title text-sm font-semibold text-gray-600 mb-4">Enrollment &amp; Completion Trend &mdash; Last 30 Days</h2>
                 <canvas id="snn-trend-chart" height="140"></canvas>
             </div>
 
             <div class="snn-perf-card bg-white rounded-xl shadow-sm p-5">
-                <h2 class="snn-perf-title text-sm font-semibold text-gray-600 mb-4">Course Performance</h2>
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="snn-perf-title text-sm font-semibold text-gray-600">Course Performance</h2>
+                    <a href="<?= esc_url( rest_url( 'snn-learn/v1/admin/export/progress' ) . ( $group_filter ? '?group=' . urlencode( $group_filter ) : '' ) ) ?>" class="text-xs text-blue-600 hover:underline font-medium">CSV</a>
+                </div>
                 <div class="overflow-auto max-h-52">
                     <table class="snn-perf-table w-full text-sm">
                         <thead>
                             <tr class="text-left text-xs font-semibold text-gray-400 border-b">
                                 <th class="pb-2 pr-4">Course</th>
                                 <th class="pb-2 pr-4">Enrolled</th>
-                                <th class="pb-2 pr-4">Completed</th>
+                                <th class="pb-2 pr-4">Finished</th>
                                 <th class="pb-2">Rate</th>
                             </tr>
                         </thead>
@@ -442,17 +576,18 @@ function snn_learn_dashboard_page() {
                             $title      = get_the_title( $c->course_id );
                             $badge      = $rate >= 70 ? 'bg-green-100 text-green-800' : ( $rate >= 40 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800' );
                             $course_url = get_permalink( $c->course_id );
+                            $edit_url   = get_edit_post_link( $c->course_id );
                         ?>
                         <tr class="border-b border-gray-100 hover:bg-gray-50">
                             <td class="py-2 pr-4 text-blue-600 font-medium">
-                                <?php if ( $title && $course_url ) : ?>
-                                <a href="<?= esc_url( $course_url ) ?>" target="_blank" class="hover:underline"><?= esc_html( $title ) ?></a>
+                                <?php if ( $title ) : ?>
+                                <a href="<?= esc_url( $edit_url ?: '#' ) ?>" class="hover:underline" title="Edit course"><?= esc_html( $title ) ?></a>
                                 <?php else : ?>
-                                <?= $title ? esc_html( $title ) : '#' . $c->course_id ?>
+                                #<?= $c->course_id ?>
                                 <?php endif; ?>
                             </td>
                             <td class="py-2 pr-4"><?= (int) $c->enrolled ?></td>
-                            <td class="py-2 pr-4"><?= (int) $c->completed ?></td>
+                            <td class="py-2 pr-4"><?= (int) $c->course_completed ?></td>
                             <td class="py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?= $badge ?>"><?= number_format( $rate, 1 ) ?>%</span></td>
                         </tr>
                         <?php endforeach; ?>
@@ -484,10 +619,24 @@ function snn_learn_dashboard_page() {
                         <?php foreach ( $at_risk as $r ) :
                             $user         = get_userdata( $r->user_id );
                             $course_title = get_the_title( $r->course_id );
+                            $user_url     = $user ? get_edit_user_link( $r->user_id ) : '';
+                            $course_edit  = get_edit_post_link( $r->course_id );
                         ?>
                         <tr class="border-b border-gray-100 hover:bg-gray-50">
-                            <td class="py-2 pr-4"><?= $user ? esc_html( $user->display_name ) : '#' . $r->user_id ?></td>
-                            <td class="py-2 pr-4"><?= $course_title ? esc_html( $course_title ) : '#' . $r->course_id ?></td>
+                            <td class="py-2 pr-4">
+                                <?php if ( $user && $user_url ) : ?>
+                                <a href="<?= esc_url( $user_url ) ?>" class="text-blue-600 hover:underline font-medium"><?= esc_html( $user->display_name ) ?></a>
+                                <?php else : ?>
+                                #<?= $r->user_id ?>
+                                <?php endif; ?>
+                            </td>
+                            <td class="py-2 pr-4">
+                                <?php if ( $course_title && $course_edit ) : ?>
+                                <a href="<?= esc_url( $course_edit ) ?>" class="text-blue-600 hover:underline"><?= esc_html( $course_title ) ?></a>
+                                <?php else : ?>
+                                <?= $course_title ? esc_html( $course_title ) : '#' . $r->course_id ?>
+                                <?php endif; ?>
+                            </td>
                             <td class="py-2 text-red-500"><?= $r->last_activity_at ? human_time_diff( $r->last_activity_at ) . ' ago' : '&mdash;' ?></td>
                         </tr>
                         <?php endforeach; ?>
@@ -505,7 +654,10 @@ function snn_learn_dashboard_page() {
                 <?php foreach ( $recent_activity as $a ) :
                     $user         = get_userdata( $a->user_id );
                     $course_title = get_the_title( $a->course_id );
-                    $is_done      = ! empty( $a->completed_at );
+                    $is_lesson    = ( $a->event_type ?? '' ) === 'lesson_completed';
+                    $is_done      = $is_lesson || ! empty( $a->completed_at );
+                    $item_label   = $is_lesson ? 'completed lesson' : ( ! empty( $a->completed_at ) ? 'completed' : 'enrolled in' );
+                    $detail_text  = $is_lesson && ! empty( $a->item_title ) ? esc_html( $a->item_title ) : ( $course_title ? esc_html( $course_title ) : '#' . $a->course_id );
                 ?>
                 <div class="snn-feed-item flex items-center gap-3 text-sm border-b border-gray-100 pb-2">
                     <span class="snn-feed-icon w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 <?= $is_done ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700' ?>">
@@ -513,8 +665,8 @@ function snn_learn_dashboard_page() {
                     </span>
                     <div class="snn-feed-text flex-1 min-w-0 truncate">
                         <span class="font-medium"><?= $user ? esc_html( $user->display_name ) : 'User #' . $a->user_id ?></span>
-                        <span class="text-gray-400"> <?= $is_done ? 'completed' : 'enrolled in' ?> </span>
-                        <span><?= $course_title ? esc_html( $course_title ) : '#' . $a->course_id ?></span>
+                        <span class="text-gray-400"> <?= $item_label ?> </span>
+                        <span><?= $detail_text ?></span>
                     </div>
                     <span class="snn-feed-time text-xs text-gray-400 shrink-0"><?= human_time_diff( $a->last_activity_at ) ?> ago</span>
                 </div>
@@ -532,31 +684,59 @@ function snn_learn_dashboard_page() {
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
+        // ---- Dual-line Enrollment + Completion Trend Chart ----
         var ctx = document.getElementById('snn-trend-chart');
-        if (!ctx || typeof Chart === 'undefined') return;
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: <?= json_encode( $trend_labels ) ?>,
-                datasets: [{
-                    label: 'Enrollments',
-                    data: <?= json_encode( $trend_data ) ?>,
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59,130,246,0.08)',
-                    tension: 0.4,
-                    fill: true,
-                    pointRadius: 3,
-                    pointHoverRadius: 5
-                }]
-            },
-            options: {
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-                    x: { ticks: { maxTicksLimit: 8, maxRotation: 0 } }
+        if (ctx && typeof Chart !== 'undefined') {
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: <?= json_encode( $trend_labels ) ?>,
+                    datasets: [{
+                        label: 'Enrollments',
+                        data: <?= json_encode( $trend_data ) ?>,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59,130,246,0.08)',
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    },{
+                        label: 'Completions',
+                        data: <?= json_encode( $comp_data ) ?>,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16,185,129,0.06)',
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        borderDash: [4, 3]
+                    }]
+                },
+                options: {
+                    plugins: {
+                        legend: { display: true, position: 'bottom', labels: { boxWidth: 12, padding: 16, font: { size: 11 }, usePointStyle: true } }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+                        x: { ticks: { maxTicksLimit: 8, maxRotation: 0 } }
+                    },
+                    interaction: { mode: 'index', intersect: false }
                 }
-            }
-        });
+            });
+        }
+
+        // ---- AJAX Refresh button ----
+        var refreshBtn = document.getElementById('snn-refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', function () {
+                var url = new URL(window.location.href);
+                url.searchParams.set('snn_refresh', '1');
+                url.searchParams.set('_t', Date.now());
+                refreshBtn.disabled = true;
+                refreshBtn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Refreshing...';
+                window.location.href = url.toString();
+            });
+        }
     });
     </script>
     <?php

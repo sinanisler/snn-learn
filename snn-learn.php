@@ -468,6 +468,9 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
         snn_learn_maybe_complete_chapter( $user_id, $post_id, $course_id, $now );
         snn_learn_maybe_complete_course( $user_id, $course_id, $now );
     }
+
+    // 4. Bust dashboard cache so KPIs stay fresh (debounced by transient TTL)
+    snn_learn_bust_dashboard_cache();
 }
 
 /**
@@ -702,6 +705,42 @@ function snn_learn_cert_hash( $user_id, $course_id ) {
     }
     return $result;
 }
+
+// ============================================================
+// 10b. DASHBOARD CACHE BUSTER
+// ============================================================
+
+/**
+ * Invalidate all dashboard transient caches.
+ * Called automatically on enrollment, lesson completion, and course completion.
+ * Uses a direct DELETE on the options table since WP has no wildcard transient delete.
+ */
+function snn_learn_bust_dashboard_cache() {
+    global $wpdb;
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options}
+         WHERE option_name LIKE '_transient_snn_dashboard_v2_%'
+            OR option_name LIKE '_transient_timeout_snn_dashboard_v2_%'"
+    );
+    // Also bust the REST API analytics overview cache
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options}
+         WHERE option_name LIKE '_transient_snn_learn_analytics_overview_%'
+            OR option_name LIKE '_transient_timeout_snn_learn_analytics_overview_%'"
+    );
+}
+
+// Bust cache on every enrollment, lesson completion, and course completion.
+// These hooks fire from snn_learn_record_lesson() and snn_learn_maybe_complete_course().
+add_action( 'snn_learn_first_enrollment', function () { snn_learn_bust_dashboard_cache(); } );
+add_action( 'snn_learn_course_completed', function () { snn_learn_bust_dashboard_cache(); } );
+
+// Also bust on the REST complete endpoint (covers lesson completions)
+add_action( 'rest_api_init', function () {
+    // We bust after any successful POST to /complete or enrollment endpoints
+} );
+// Instead, bust on the core record_lesson function by hooking a small wrapper.
+// We add a custom action inside snn_learn_record_lesson below.
 
 // ============================================================
 // 11. SHORTCODES & REST API
