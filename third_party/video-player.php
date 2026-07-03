@@ -505,7 +505,7 @@ class SNN_Learn_Video_Player_Element extends Element {
             #" . esc_attr($root_id) . " .snn-learn-chapter-sections-container { position: absolute; width: 100%; height: 100%; top: 0; left: 0; display: flex; z-index: 3; pointer-events: all; }
             #" . esc_attr($root_id) . " .snn-learn-chapter-section { position: relative; height: 5px; background: transparent; transition: height 0.15s ease; cursor: pointer; display: flex; align-items: flex-end; }
             #" . esc_attr($root_id) . " .snn-learn-chapter-section:hover { transform:scaleY(1.6)}
-            #" . esc_attr($root_id) . " .snn-learn-chapter-section-fill { position: absolute; bottom: 0; left: 0; width: 0%; height: 100%; background: var(--primary-accent-color); transition: width 0.1s linear; pointer-events: none; }
+            #" . esc_attr($root_id) . " .snn-learn-chapter-section-fill { position: absolute; bottom: 0; left: 0; width: 0%; height: 100%; background: var(--primary-accent-color); transition: width 0.1s linear; pointer-events: none; will-change: width; }
             #" . esc_attr($root_id) . " .snn-learn-chapter-section-bg { position: absolute; bottom: 0; left: 0; width: 100%; height: 100%; background: var(--slider-track-color); pointer-events: none; }
             #" . esc_attr($root_id) . " .snn-learn-controls-bar { display: flex; align-items: center; justify-content: space-between; color: var(--text-color); padding: 0 2px 2px 2px; }
             #" . esc_attr($root_id) . " .snn-learn-controls-left, #" . esc_attr($root_id) . " .snn-learn-controls-right { display: flex; align-items: center; gap: 10px; }
@@ -518,7 +518,7 @@ class SNN_Learn_Video_Player_Element extends Element {
             #" . esc_attr($root_id) . " .snn-learn-progress-bar.snn-learn-video-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 5px; background: transparent; cursor: pointer; border-radius: 5px; position: absolute; top: 0; left: 0; z-index: 0; }
             #" . esc_attr($root_id) . " .snn-learn-progress-bar.snn-learn-video-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 0; height: 0; opacity: 0; }
             #" . esc_attr($root_id) . " .snn-learn-progress-bar.snn-learn-video-slider::-moz-range-thumb { width: 0; height: 0; opacity: 0; }
-            #" . esc_attr($root_id) . " .snn-learn-progress-thumb { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 16px; height: 16px; background: var(--thumb-color); border-radius: 50%; cursor: pointer; border: 2px solid var(--primary-accent-color); transition: transform 0.2s ease; pointer-events: none; z-index: 10; }
+            #" . esc_attr($root_id) . " .snn-learn-progress-thumb { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 16px; height: 16px; background: var(--thumb-color); border-radius: 50%; cursor: pointer; border: 2px solid var(--primary-accent-color); transition: transform 0.2s ease; pointer-events: none; z-index: 10; will-change: left; }
             #" . esc_attr($root_id) . " .snn-learn-progress-thumb:hover { transform: translate(-50%, -50%) scale(1.1); }
             #" . esc_attr($root_id) . " .snn-learn-volume-slider { -webkit-appearance: none; appearance: none; height: 5px; background: var(--slider-track-color); cursor: pointer; border-radius: 5px; transition: height 0.2s ease, width 0.3s ease, opacity 0.3s ease; margin-left: 7.5px; position: relative; }
             #" . esc_attr($root_id) . " .snn-learn-volume-slider:hover { height: 8px; }
@@ -750,6 +750,17 @@ class SNN_Learn_Video_Player_Element extends Element {
             let chapterSections = [];
             let isDraggingThumb = false;
             let playPromise = null;
+            let updateScheduled = false;
+
+            // Cache computed styles to avoid forced reflows in the hot path
+            let cachedAccentColor = '';
+            let cachedTrackColor = '';
+            const refreshCachedColors = () => {
+                const cs = getComputedStyle(playerWrapper);
+                cachedAccentColor = cs.getPropertyValue('--primary-accent-color').trim();
+                cachedTrackColor = cs.getPropertyValue('--slider-track-color').trim();
+            };
+            refreshCachedColors();
 
             const timeToSeconds = (timeString) => {
                 if (!timeString || typeof timeString !== 'string') return 0;
@@ -770,9 +781,7 @@ class SNN_Learn_Video_Player_Element extends Element {
                 if (bar.classList.contains('snn-learn-volume-slider')) {
                     progress = progress * 100;
                 }
-                const accentColor = getComputedStyle(playerWrapper).getPropertyValue('--primary-accent-color').trim();
-                const trackColor = getComputedStyle(playerWrapper).getPropertyValue('--slider-track-color').trim();
-                bar.style.background = `linear-gradient(to right, ${accentColor} ${progress}%, ${trackColor} ${progress}%)`;
+                bar.style.background = `linear-gradient(to right, ${cachedAccentColor} ${progress}%, ${cachedTrackColor} ${progress}%)`;
             };
 
             const updateProgressThumbPosition = () => {
@@ -869,6 +878,7 @@ class SNN_Learn_Video_Player_Element extends Element {
 
             const updateChapterSectionsFill = () => {
                 if (!chapterSections.length || isNaN(video.duration)) return;
+                if (video.paused && !isSeeking && !isDraggingThumb) return;
                 
                 const currentTime = video.currentTime;
                 
@@ -893,6 +903,16 @@ class SNN_Learn_Video_Player_Element extends Element {
                 if (timeDisplay) timeDisplay.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration || 0)}`;
                 updateProgressThumbPosition();
                 updateChapterSectionsFill();
+            };
+
+            const updateProgressThrottled = () => {
+                if (!updateScheduled) {
+                    updateScheduled = true;
+                    requestAnimationFrame(() => {
+                        updateProgress();
+                        updateScheduled = false;
+                    });
+                }
             };
 
             const hideControls = () => {
@@ -1472,7 +1492,7 @@ class SNN_Learn_Video_Player_Element extends Element {
                 updateMuteIcon();
                 updateProgressBarFill(volumeSlider);
             });
-            video.addEventListener('timeupdate', updateProgress);
+            video.addEventListener('timeupdate', updateProgressThrottled);
             video.addEventListener('loadedmetadata', () => {
                 updateProgress();
                 generateChapterSections();
