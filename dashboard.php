@@ -541,10 +541,10 @@ function snn_learn_dashboard_page() {
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     Refresh
                 </button>
-                <a href="<?= esc_url( rest_url( 'snn-learn/v1/admin/export/enrollments' ) . ( $group_filter ? '?group=' . urlencode( $group_filter ) : '' ) ) ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors no-underline" title="Export enrollments CSV">
+                <button id="snn-export-enrollments-btn" data-export-url="<?= esc_url( rest_url( 'snn-learn/v1/admin/export/enrollments' ) . ( $group_filter ? '?group=' . urlencode( $group_filter ) : '' ) ) ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-800 hover:text-white transition-colors cursor-pointer border-0" title="Export enrollments CSV">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                     Export CSV
-                </a>
+                </button>
             </div>
         </div>
 
@@ -813,6 +813,45 @@ function snn_learn_dashboard_page() {
                     },
                     interaction: { mode: 'index', intersect: false }
                 }
+            });
+        }
+
+        // ---- CSV Export via fetch (triggers download, no navigation) ----
+        function snnExportCSV(btn, url) {
+            var origHTML = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Exporting...';
+            fetch(url, { credentials: 'same-origin' })
+                .then(function (res) {
+                    if (!res.ok) throw new Error('Export failed (' + res.status + ')');
+                    var disposition = res.headers.get('Content-Disposition') || '';
+                    var match = disposition.match(/filename="?([^"]+)"?/);
+                    var filename = match ? match[1] : 'export.csv';
+                    return res.blob().then(function (blob) { return { blob: blob, filename: filename }; });
+                })
+                .then(function (data) {
+                    var downloadUrl = URL.createObjectURL(data.blob);
+                    var a = document.createElement('a');
+                    a.href = downloadUrl;
+                    a.download = data.filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(downloadUrl);
+                    btn.disabled = false;
+                    btn.innerHTML = origHTML;
+                })
+                .catch(function (err) {
+                    alert('Export error: ' + err.message);
+                    btn.disabled = false;
+                    btn.innerHTML = origHTML;
+                });
+        }
+
+        var exportBtn = document.getElementById('snn-export-enrollments-btn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', function () {
+                snnExportCSV(exportBtn, exportBtn.getAttribute('data-export-url'));
             });
         }
 
