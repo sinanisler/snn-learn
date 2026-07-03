@@ -708,6 +708,11 @@ require_once plugin_dir_path( __FILE__ ) . 'emails.php';
 // Third-party integrations — only load when the relevant theme/plugin is active
 if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() === 'bricks' ) {
     require_once plugin_dir_path( __FILE__ ) . 'third_party/bricks.php';
+
+    // Register SNN Learn Bricks Builder elements
+    add_action( 'init', function () {
+        \Bricks\Elements::register_element( plugin_dir_path( __FILE__ ) . 'third_party/video-player.php' );
+    }, 11 );
 }
 
 // ----------------------------------------------------------
