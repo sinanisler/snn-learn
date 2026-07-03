@@ -195,63 +195,63 @@ class SNN_Learn_Video_Player_Element extends Element {
             'tab'   => 'content',
             'label' => esc_html__( 'Primary Accent', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(0, 0, 0, 1)',
+            'default' => '#000000',
         ];
 
         $this->controls['thumb_color'] = [
             'tab'   => 'content',
             'label' => esc_html__( 'Slider Thumb Color', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(255, 255, 255, 1)',
+            'default' => '#ffffff',
         ];
 
         $this->controls['text_color'] = [
             'tab'   => 'content',
             'label' => esc_html__( 'Text & Icons Color', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(255, 255, 255, 1)',
+            'default' => '#ffffff',
         ];
 
         $this->controls['slider_track_color'] = [
             'tab'   => 'content',
             'label' => esc_html__( 'Slider Track', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(255, 255, 255, 0.3)',
+            'default' => '#ffffff4d',
         ];
 
         $this->controls['chapter_dot_color'] = [
             'tab'   => 'content',
             'label' => esc_html__( 'Chapter Dot', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(255, 255, 255, 1)',
+            'default' => '#ffffff',
         ];
 
         $this->controls['button_hover_background'] = [
             'tab'   => 'content',
             'label' => esc_html__( 'Button Hover BG', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(255, 255, 255, 0.2)',
+            'default' => '#ffffff33',
         ];
 
         $this->controls['button_color'] = [
             'tab'   => 'content',
             'label' => esc_html__( 'Button Color', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(255, 255, 255, 1)',
+            'default' => '#ffffff',
         ];
 
         $this->controls['tooltip_text_color'] = [
             'tab'   => 'content',
             'label' => esc_html__( 'Tooltip Text Color', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(255, 255, 255, 1)',
+            'default' => '#ffffff',
         ];
 
         $this->controls['controls_bar_bg'] = [
             'tab'   => 'content',
             'label' => esc_html__( 'Controls Bar Background', 'snn-learn' ),
             'type'  => 'color',
-            'default' => 'rgba(0, 0, 0, 0.8)',
+            'default' => '#000000cc',
             'inline'=> true,
         ];
 
@@ -481,12 +481,12 @@ class SNN_Learn_Video_Player_Element extends Element {
         $accent_color        = $settings['primary_accent_color']['raw'] ?? $settings['primary_accent_color']['hex'] ?? '#ffd64f';
         $thumb_color         = $settings['thumb_color']['raw'] ?? $settings['thumb_color']['hex'] ?? '#ffffff';
         $text_color          = $settings['text_color']['raw'] ?? $settings['text_color']['hex'] ?? '#ffffff';
-        $slider_track        = $settings['slider_track_color']['raw'] ?? $settings['slider_track_color']['hex'] ?? 'rgba(255, 255, 255, 0.3)';
+        $slider_track        = $settings['slider_track_color']['raw'] ?? $settings['slider_track_color']['hex'] ?? '#ffffff4d';
         $chapter_dot_color = $settings['chapter_dot_color']['raw'] ?? $settings['chapter_dot_color']['hex'] ?? '#ffffff';
-        $btn_hover_bg        = $settings['button_hover_background']['raw'] ?? $settings['button_hover_background']['hex'] ?? 'rgba(255, 255, 255, 0.2)';
-        $button_color        = $settings['button_color']['raw'] ?? $settings['button_color']['hex'] ?? 'rgba(255, 255, 255, 1)';
-        $tooltip_text_color  = $settings['tooltip_text_color']['raw'] ?? $settings['tooltip_text_color']['hex'] ?? 'rgba(0, 0, 0, 1)';
-        $controls_bar_bg     = $settings['controls_bar_bg']['raw'] ?? $settings['controls_bar_bg']['hex'] ?? 'rgba(0, 0, 0, 0.5)';
+        $btn_hover_bg        = $settings['button_hover_background']['raw'] ?? $settings['button_hover_background']['hex'] ?? '#ffffff33';
+        $button_color        = $settings['button_color']['raw'] ?? $settings['button_color']['hex'] ?? '#ffffff';
+        $tooltip_text_color  = $settings['tooltip_text_color']['raw'] ?? $settings['tooltip_text_color']['hex'] ?? '#ffffff';
+        $controls_bar_bg     = $settings['controls_bar_bg']['raw'] ?? $settings['controls_bar_bg']['hex'] ?? '#00000080';
 
         echo "<div {$this->render_attributes('_root')}>";
 
@@ -498,7 +498,7 @@ class SNN_Learn_Video_Player_Element extends Element {
             #" . esc_attr($root_id) . " .snn-learn-controls-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; opacity: 0; transition: opacity 0.3s ease-in-out; }
             #" . esc_attr($root_id) . " .snn-learn-video-container.snn-learn-controls-visible .snn-learn-controls-overlay { opacity: 1; }
             #" . esc_attr($root_id) . " .snn-learn-controls-hidden .snn-learn-controls-overlay { cursor: none; opacity: 0; pointer-events: none; }
-            #" . esc_attr($root_id) . " .snn-learn-controls-bar-container { padding: 0; background: linear-gradient(to top, var(--controls-bar-bg) 0%, rgba(0, 0, 0, 0.2) 100%); }
+            #" . esc_attr($root_id) . " .snn-learn-controls-bar-container { padding: 0; background: linear-gradient(to top, var(--controls-bar-bg) 0%, #00000033 100%); }
             #" . esc_attr($root_id) . " .snn-learn-progress-container { position: relative; margin:0 11px 4px 12px; height: 5px; }
             #" . esc_attr($root_id) . " .snn-learn-progress-tooltip { position: absolute; background-color: var(--primary-accent-color); color: var(--tooltip-text-color); font-size: 14px; border-radius: 3.75px; padding: 3.75px 7.5px; bottom: 100%; margin-bottom: 8px; pointer-events: none; opacity: 0; transition: opacity 0.2s; white-space: normal; word-wrap: break-word; transform: translateX(-50%); max-width: 260px; z-index: 10; line-height: 1.4; }
             #" . esc_attr($root_id) . " .snn-learn-chapter-dots-container { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; z-index: 5; }
@@ -528,17 +528,17 @@ class SNN_Learn_Video_Player_Element extends Element {
             #" . esc_attr($root_id) . " .snn-learn-chapter-dot { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 5px; height: 6px; background: var(--chapter-dot-color); border-radius: 0px; cursor: pointer; transition: transform 0.2s ease; }
             #" . esc_attr($root_id) . " .snn-learn-chapter-dot:hover { transform: translate(-50%, -50%) scale(1.5); }
             #" . esc_attr($root_id) . " .snn-learn-cc-container { position: relative; }
-            #" . esc_attr($root_id) . " .snn-learn-cc-menu { position: absolute; bottom: 100%; right: 0; margin-bottom: 10px; background-color: rgba(0, 0, 0, 0.9); border-radius: 5px; min-width: 200px; max-height: 250px; overflow-y: auto; display: none; z-index: 100; }
+            #" . esc_attr($root_id) . " .snn-learn-cc-menu { position: absolute; bottom: 100%; right: 0; margin-bottom: 10px; background-color: #000000e6; border-radius: 5px; min-width: 200px; max-height: 250px; overflow-y: auto; display: none; z-index: 100; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu.snn-learn-show { display: block; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu::-webkit-scrollbar { width: 6px; }
-            #" . esc_attr($root_id) . " .snn-learn-cc-menu::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+            #" . esc_attr($root_id) . " .snn-learn-cc-menu::-webkit-scrollbar-track { background: #ffffff1a; border-radius: 3px; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu::-webkit-scrollbar-thumb { background: var(--primary-accent-color); border-radius: 3px; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu::-webkit-scrollbar-thumb:hover { background: var(--primary-accent-color); opacity: 0.8; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu-item { padding: 12px 16px; cursor: pointer; color: var(--text-color); font-size: 14px; transition: background-color 0.2s; border: none; background: none; width: 100%; text-align: left; display: flex; align-items: center; gap: 8px; }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu-item:hover { background-color: var(--button-hover-background); }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu-item.snn-learn-active { background-color: var(--primary-accent-color); color: var(--tooltip-text-color); }
             #" . esc_attr($root_id) . " .snn-learn-cc-menu-item svg { width: 16px; height: 16px; fill: currentColor; }
-            #" . esc_attr($root_id) . " .snn-learn-cc-settings-btn { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+            #" . esc_attr($root_id) . " .snn-learn-cc-settings-btn { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #ffffff1a; }
             #" . esc_attr($root_id) . " .snn-learn-cc-settings-panel { display: none; padding: 8px 12px; }
             #" . esc_attr($root_id) . " .snn-learn-cc-settings-panel.snn-learn-show { display: block; }
             #" . esc_attr($root_id) . " .snn-learn-cc-lang-list { display: block; }
@@ -546,15 +546,15 @@ class SNN_Learn_Video_Player_Element extends Element {
             #" . esc_attr($root_id) . " .snn-learn-cc-settings-row { margin-bottom: 2px; }
             #" . esc_attr($root_id) . " .snn-learn-cc-settings-row:last-child { margin-bottom: 0; }
             #" . esc_attr($root_id) . " .snn-learn-cc-settings-label { display: block; color: var(--text-color); font-size: 14px; margin-bottom: 0px; font-weight: 500; }
-            #" . esc_attr($root_id) . " .snn-learn-cc-settings-input { width: 100%; padding: 6px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; color: var(--text-color); font-size: 13px; }
+            #" . esc_attr($root_id) . " .snn-learn-cc-settings-input { width: 100%; padding: 6px; background: #ffffff1a; border: 1px solid #ffffff33; border-radius: 4px; color: var(--text-color); font-size: 13px; }
             #" . esc_attr($root_id) . " .snn-learn-cc-settings-input[type=\"color\"] { height: 24px; cursor: pointer; padding: 0px; }
             #" . esc_attr($root_id) . " .snn-learn-cc-settings-input[type=\"range\"] { padding: 0; height: 6px; }
-            #" . esc_attr($root_id) . " .snn-learn-cc-back-btn { display: none; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+            #" . esc_attr($root_id) . " .snn-learn-cc-back-btn { display: none; align-items: center; gap: 8px; border-bottom: 1px solid #ffffff1a; }
             #" . esc_attr($root_id) . " .snn-learn-cc-back-btn.snn-learn-show { display: flex; }
             #" . esc_attr($root_id) . " .snn-learn-cc-back-btn svg { width: 16px; height: 16px; }
             #" . esc_attr($root_id) . " .snn-learn-settings-container { position: relative; }
             #" . esc_attr($root_id) . " .snn-learn-settings-btn { min-width: 48px; font-size: 14px; font-weight: 600; padding: 5px 8px; }
-            #" . esc_attr($root_id) . " .snn-learn-settings-menu { position: absolute; bottom: 100%; right: 0; margin-bottom: 10px; background-color: rgba(0, 0, 0, 0.9); border-radius: 5px; min-width: 80px; display: none; z-index: 100; }
+            #" . esc_attr($root_id) . " .snn-learn-settings-menu { position: absolute; bottom: 100%; right: 0; margin-bottom: 10px; background-color: #000000e6; border-radius: 5px; min-width: 80px; display: none; z-index: 100; }
             #" . esc_attr($root_id) . " .snn-learn-settings-menu.snn-learn-show { display: block; }
             #" . esc_attr($root_id) . " .snn-learn-speed-option { padding: 12px 20px; cursor: pointer; color: var(--text-color); font-size: 14px; font-weight: 500; transition: background-color 0.2s; border: none; background: none; width: 100%; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px; }
             #" . esc_attr($root_id) . " .snn-learn-speed-option:hover { background-color: var(--button-hover-background); }
