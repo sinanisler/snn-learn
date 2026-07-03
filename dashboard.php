@@ -548,131 +548,110 @@ function snn_learn_dashboard_page() {
             </div>
         </div>
 
-        <!-- Row 1: Pulse — real-time engagement health -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+        <!-- KPI Row 1 — 8 cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 mb-2.5">
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 border-l-4 border-emerald-500">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Today's Active</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $today_active ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">learners today</p>
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Today</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $today_active ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Weekly Active</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $weekly_active ) ?><?= $wau_change_html ?></p>
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">WAU</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $weekly_active ) ?><?= $wau_change_html ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 border-l-4 border-red-400">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Zero Progress</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $zero_progress ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">enrolled, 0 lessons</p>
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">0% Progress</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $zero_progress ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 border-l-4 border-emerald-500">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Completions This Week</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $completions_this_week ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">courses finished</p>
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Done (Week)</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $completions_this_week ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Lessons Done</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $total_lessons_done ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">all-time</p>
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Lessons Done</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $total_lessons_done ) ?></p>
+            </div>
+
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Compl. Rate</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $completion_rate, 1 ) ?>%</p>
+            </div>
+
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">1st Lesson</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= $avg_first_lesson_hrs ? number_format( $avg_first_lesson_hrs, 1 ) . 'h' : '&mdash;' ?></p>
+            </div>
+
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Velocity</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $completion_velocity, 1 ) ?></p>
             </div>
 
         </div>
 
-        <!-- Row 2: Growth — acquisition & re-engagement -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+        <!-- KPI Row 2 — 8 cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 mb-3">
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Enrollments</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $total_enrollments ) ?></p>
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Enrollments</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $total_enrollments ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Last 30 Days</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $recent_enrollments ) ?><?= $enr_change_html ?></p>
-                <?php if ( $prev_enrollments > 0 ) : ?>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">vs <?= number_format( $prev_enrollments ) ?> prev</p>
-                <?php endif; ?>
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Last 30d</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $recent_enrollments ) ?><?= $enr_change_html ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">New Users</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $new_users ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">first time, 7 days</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $new_users ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 border-l-4 border-amber-400">
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Re-Engaged</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $re_engaged ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">came back this week</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $re_engaged ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 border-l-4 border-amber-400">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Completion Velocity</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $completion_velocity, 1 ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">lessons/user/week</p>
-            </div>
-
-        </div>
-
-        <!-- Row 3: Health — quality & retention metrics -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Completion Rate</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $completion_rate, 1 ) ?>%</p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1"><?= number_format( $completed_items_all ) ?>/<?= number_format( $total_items_all ) ?> items</p>
-            </div>
-
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 border-l-4 border-amber-400">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg First-Lesson</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= $avg_first_lesson_hrs ? number_format( $avg_first_lesson_hrs, 1 ) . 'h' : '&mdash;' ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">from enrollment</p>
-            </div>
-
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Days to Finish</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= $avg_days ? number_format( $avg_days, 1 ) : '&mdash;' ?></p>
-            </div>
-
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Gone Cold</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $gone_cold ) ?></p>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1">14+ days inactive</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $gone_cold ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Active Courses</p>
-                <p class="snn-kpi-value text-2xl font-bold text-gray-800 mt-1"><?= number_format( $active_courses ) ?></p>
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Courses</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $active_courses ) ?></p>
             </div>
 
-            <div class="snn-kpi-card bg-white rounded-xl shadow-sm p-4 ">
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
+                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Finish</p>
+                <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= $avg_days ? number_format( $avg_days, 1 ) . 'd' : '&mdash;' ?></p>
+            </div>
+
+            <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
                 <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Peak Day</p>
-                <p class="snn-kpi-value text-lg font-bold text-gray-800 mt-1"><?= $peak_day ? esc_html( $peak_day->date ) : '&mdash;' ?></p>
-                <?php if ( $peak_day ): ?>
-                <p class="snn-kpi-desc text-xs text-gray-400 mt-1"><?= number_format( $peak_day->cnt ) ?> enr.</p>
-                <?php endif; ?>
+                <p class="snn-kpi-value text-base font-bold text-gray-800"><?= $peak_day ? esc_html( $peak_day->date ) : '&mdash;' ?></p>
             </div>
 
         </div>
 
-        <!-- Row 3: Chart + Course Table -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <!-- Chart + Course Performance -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-3">
 
-            <div class="snn-chart-card bg-white rounded-xl shadow-sm p-5">
-                <h2 class="snn-chart-title text-sm font-semibold text-gray-600 mb-4">Enrollment &amp; Completion Trend &mdash; Last 30 Days</h2>
-                <canvas id="snn-trend-chart" height="140"></canvas>
+            <div class="snn-chart-card bg-white rounded-lg shadow-sm p-3">
+                <h2 class="snn-chart-title text-xs font-semibold text-gray-500 mb-2">Enrollment &amp; Completion Trend — Last 30 Days</h2>
+                <canvas id="snn-trend-chart" height="90"></canvas>
             </div>
 
-            <div class="snn-perf-card bg-white rounded-xl shadow-sm p-5">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="snn-perf-title text-sm font-semibold text-gray-600">Course Performance</h2>
+            <div class="snn-perf-card bg-white rounded-lg shadow-sm p-3">
+                <div class="flex items-center justify-between mb-2">
+                    <h2 class="snn-perf-title text-xs font-semibold text-gray-500">Course Performance</h2>
                     <a href="<?= esc_url( rest_url( 'snn-learn/v1/admin/export/progress' ) . ( $group_filter ? '?group=' . urlencode( $group_filter ) : '' ) ) ?>" class="text-xs text-blue-600 hover:underline font-medium">CSV</a>
                 </div>
-                <div class="overflow-auto max-h-52">
+                <div class="overflow-auto max-h-40">
                     <table class="snn-perf-table w-full text-sm">
                         <thead>
                             <tr class="text-left text-xs font-semibold text-gray-400 border-b">
@@ -713,12 +692,12 @@ function snn_learn_dashboard_page() {
 
         </div>
 
-        <!-- Row 4: At-Risk + Feed -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- At-Risk + Feed -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-            <div class="snn-risk-card bg-white rounded-xl shadow-sm p-5">
-                <h2 class="snn-risk-title text-sm font-semibold text-red-600 mb-4">&#9888; At-Risk Students <span class="font-normal text-gray-400">(14+ days inactive, not completed)</span></h2>
-                <div class="overflow-auto max-h-60">
+            <div class="snn-risk-card bg-white rounded-lg shadow-sm p-3">
+                <h2 class="snn-risk-title text-xs font-semibold text-red-600 mb-2">&#9888; At-Risk <span class="font-normal text-gray-400">(14+ days inactive, not completed)</span></h2>
+                <div class="overflow-auto max-h-44">
                     <table class="snn-risk-table w-full text-sm">
                         <thead>
                             <tr class="text-left text-xs font-semibold text-gray-400 border-b">
@@ -760,9 +739,9 @@ function snn_learn_dashboard_page() {
                 </div>
             </div>
 
-            <div class="snn-feed-card bg-white rounded-xl shadow-sm p-5">
-                <h2 class="snn-feed-title text-sm font-semibold text-gray-600 mb-4">Recent Activity Feed</h2>
-                <div class="snn-feed-list space-y-2 overflow-auto max-h-60">
+            <div class="snn-feed-card bg-white rounded-lg shadow-sm p-3">
+                <h2 class="snn-feed-title text-xs font-semibold text-gray-500 mb-2">Recent Activity Feed</h2>
+                <div class="snn-feed-list space-y-1.5 overflow-auto max-h-44">
                 <?php foreach ( $recent_activity as $a ) :
                     $user         = get_userdata( $a->user_id );
                     $course_title = get_the_title( $a->course_id );
