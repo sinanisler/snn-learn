@@ -44,9 +44,11 @@ function snn_media_defaults() {
         'mp3_auto'             => 1,
         'mp3_bitrate'          => '32k',
         'mp3_sample_rate'      => '22050',
-        'mp3_max_source_mb'    => 512,
-        'ffmpeg_base_url'      => 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd',
-        'ffmpeg_core_url'      => 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd',
+        'mp3_max_source_mb'    => 2048,
+        // Blank means "use the copies bundled with the plugin", which is the
+        // only arrangement that needs no CORS at all — see snn_media_ffmpeg_urls().
+        'ffmpeg_base_url'      => '',
+        'ffmpeg_core_url'      => '',
 
         // OpenRouter speech-to-text → VTT
         'openrouter_api_key'   => '',
@@ -1087,7 +1089,12 @@ function snn_media_rest_mp3_status( WP_REST_Request $request ) {
 
     $update = [ 'mp3_status' => $status ];
     if ( 'error' === $status ) {
-        $update['error_msg'] = sanitize_textarea_field( (string) ( $params['message'] ?? 'The browser could not convert this file.' ) );
+        // Fall back only when the browser genuinely sent nothing — an empty
+        // string must not slip through as a blank reason.
+        $reason = sanitize_textarea_field( (string) ( $params['message'] ?? '' ) );
+        $update['error_msg'] = '' !== trim( $reason )
+            ? $reason
+            : 'The browser could not convert this file, and reported no reason. Check the processing log on the Media Library screen.';
     }
     snn_media_update( $row->id, $update );
 
@@ -1177,8 +1184,53 @@ function snn_media_rest_delete( WP_REST_Request $request ) {
 // 10. ADMIN — MEDIA LIBRARY PAGE
 // ============================================================
 
+/**
+ * Resolves where the browser should fetch ffmpeg.wasm from.
+ *
+ * The bundled copies are served from the plugin's own assets folder. That is
+ * deliberate rather than a convenience: `ffmpeg.js` spawns its worker with
+ * `new Worker(new URL('./814.ffmpeg.js', <script url>))`, and constructing a
+ * Worker from another origin is blocked by the browser outright — no CORS
+ * header can permit it. Serving both files from our own origin sidesteps the
+ * whole problem, and lets the core load as plain URLs instead of blob copies.
+ *
+ * @return array {
+ *     @type string $base    Directory holding ffmpeg.js and its worker chunk.
+ *     @type string $core    Directory holding ffmpeg-core.js and .wasm.
+ *     @type bool   $bundled Whether the bundled copies are being used.
+ *     @type array  $missing Bundled files that are absent from disk.
+ * }
+ */
+function snn_media_ffmpeg_urls() {
+    $base = trim( (string) snn_media_get( 'ffmpeg_base_url' ) );
+    $core = trim( (string) snn_media_get( 'ffmpeg_core_url' ) );
+
+    if ( '' !== $base || '' !== $core ) {
+        return [
+            'base'    => rtrim( $base, '/' ),
+            'core'    => rtrim( $core, '/' ),
+            'bundled' => false,
+            'missing' => [],
+        ];
+    }
+
+    $dir     = plugin_dir_path( __FILE__ ) . 'assets/ffmpeg/';
+    $url     = rtrim( plugin_dir_url( __FILE__ ) . 'assets/ffmpeg', '/' );
+    $missing = [];
+
+    foreach ( [ 'ffmpeg.js', '814.ffmpeg.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm' ] as $file ) {
+        if ( ! file_exists( $dir . $file ) ) {
+            $missing[] = $file;
+        }
+    }
+
+    return [ 'base' => $url, 'core' => $url, 'bundled' => true, 'missing' => $missing ];
+}
+
 /** Everything the browser app needs to run, in one object. */
 function snn_media_js_config() {
+    $ffmpeg = snn_media_ffmpeg_urls();
+
     return [
         'restUrl'        => esc_url_raw( rest_url( 'snn-learn/v1/media/' ) ),
         'nonce'          => wp_create_nonce( 'wp_rest' ),
@@ -1193,8 +1245,10 @@ function snn_media_js_config() {
         'r2AutoSync'     => (bool) snn_media_get( 'r2_auto_sync' ),
         'r2Configured'   => snn_media_r2_configured(),
         'sttConfigured'  => trim( (string) snn_media_get( 'openrouter_api_key' ) ) !== '',
-        'ffmpegBase'     => rtrim( (string) snn_media_get( 'ffmpeg_base_url' ), '/' ),
-        'ffmpegCore'     => rtrim( (string) snn_media_get( 'ffmpeg_core_url' ), '/' ),
+        'ffmpegBase'     => $ffmpeg['base'],
+        'ffmpegCore'     => $ffmpeg['core'],
+        'ffmpegBundled'  => $ffmpeg['bundled'],
+        'ffmpegMissing'  => $ffmpeg['missing'],
         'settingsUrl'    => admin_url( 'admin.php?page=snn-learn-media-settings' ),
     ];
 }
@@ -1498,16 +1552,34 @@ function snn_media_settings_page() {
             </div>
 
             <!-- ============ ffmpeg.wasm ============ -->
+            <?php $ffmpeg_urls = snn_media_ffmpeg_urls(); ?>
             <div class="snn-settings-card">
-                <h2>Audio extraction (ffmpeg.wasm)</h2>
+                <h2>Audio extraction (ffmpeg.wasm)
+                    <?php if ( $ffmpeg_urls['bundled'] && ! $ffmpeg_urls['missing'] ) : ?>
+                        <span class="snn-badge snn-badge-ok">Bundled &amp; self-hosted</span>
+                    <?php elseif ( $ffmpeg_urls['missing'] ) : ?>
+                        <span class="snn-badge snn-badge-err">Files missing</span>
+                    <?php else : ?>
+                        <span class="snn-badge snn-badge-wait">Custom URLs</span>
+                    <?php endif; ?>
+                </h2>
                 <p class="snn-help snn-note">
-                    Conversion runs <strong>in the browser</strong> on the Media Library screen &mdash; no <code>ffmpeg</code>
-                    binary and no <code>exec()</code> on the server. Keep that tab open while a batch is processing.
-                    The single-threaded core is used, so no <code>SharedArrayBuffer</code> / COOP-COEP headers are required.
+                    Conversion runs <strong>entirely in the visitor's browser, on their own CPU</strong>. The server never
+                    decodes video: the browser encodes a small mono MP3 and uploads only that &mdash; a few MB even for a
+                    multi-gigabyte lesson. There is no <code>ffmpeg</code> binary and no <code>exec()</code> anywhere in this
+                    plugin. Keep the Media Library tab open while a batch is processing.
+                    The single-threaded core is used, so no <code>SharedArrayBuffer</code> or COOP/COEP headers are needed.
                 </p>
+                <?php if ( $ffmpeg_urls['missing'] ) : ?>
+                    <p class="snn-help snn-note" style="border-color:#fca5a5;background:#fef2f2;color:#991b1b">
+                        <strong>Missing from <code>assets/ffmpeg/</code>:</strong>
+                        <?= esc_html( implode( ', ', $ffmpeg_urls['missing'] ) ) ?>.
+                        Re-deploy the plugin's <code>assets/ffmpeg/</code> folder, or point the fields below at a copy you host.
+                    </p>
+                <?php endif; ?>
                 <label class="snn-toggle">
                     <input type="checkbox" name="snn_mp3_auto" value="1" <?php checked( snn_media_get( 'mp3_auto' ) ); ?>>
-                    <span><strong>Extract MP3 automatically</strong> &mdash; convert right after each upload, while the file is still in memory (no re-download). With this off, use the <em>Make MP3</em> button.</span>
+                    <span><strong>Extract MP3 automatically</strong> &mdash; convert right after each upload, while the browser still holds the file (no re-download). With this off, use the <em>Make MP3</em> button.</span>
                 </label>
                 <div class="snn-grid">
                     <div class="snn-field">
@@ -1520,25 +1592,46 @@ function snn_media_settings_page() {
                         <label for="snn_mp3_sample_rate">Sample rate (Hz)</label>
                         <input type="text" id="snn_mp3_sample_rate" name="snn_mp3_sample_rate"
                             value="<?= esc_attr( snn_media_get( 'mp3_sample_rate' ) ) ?>" placeholder="22050">
+                        <p class="snn-help">22050 Hz covers the speech range. Whisper downsamples to 16000 Hz anyway.</p>
                     </div>
                     <div class="snn-field">
                         <label for="snn_mp3_max_source_mb">Skip sources larger than (MB)</label>
                         <input type="number" min="0" id="snn_mp3_max_source_mb" name="snn_mp3_max_source_mb"
                             value="<?= esc_attr( snn_media_get( 'mp3_max_source_mb' ) ) ?>">
-                        <p class="snn-help">ffmpeg.wasm holds the whole file in WebAssembly memory, which tops out around 2&nbsp;GB. 0 disables the guard.</p>
+                        <p class="snn-help">
+                            The source is mounted through WORKERFS and read on demand, so it is never copied into
+                            WebAssembly memory &mdash; large files are fine. 0 disables the guard entirely.
+                        </p>
                     </div>
+                </div>
+
+                <h3 class="snn-subhead">Where ffmpeg.wasm is loaded from</h3>
+                <p class="snn-help">
+                    Leave both blank to use the copies bundled with this plugin, served from your own domain.
+                    That is strongly recommended: <code>ffmpeg.js</code> starts its worker with
+                    <code>new Worker(new URL('./814.ffmpeg.js', &hellip;))</code>, and browsers refuse to construct a
+                    Worker from another origin no matter what CORS headers that origin sends. Loading from a CDN is
+                    the usual cause of conversions failing with an unhelpful error.
+                </p>
+                <div class="snn-grid">
                     <div class="snn-field">
                         <label for="snn_ffmpeg_base_url">ffmpeg.wasm UMD base URL</label>
                         <input type="url" id="snn_ffmpeg_base_url" name="snn_ffmpeg_base_url"
-                            value="<?= esc_attr( snn_media_get( 'ffmpeg_base_url' ) ) ?>">
+                            value="<?= esc_attr( snn_media_get( 'ffmpeg_base_url' ) ) ?>"
+                            placeholder="<?= esc_attr( $ffmpeg_urls['bundled'] ? $ffmpeg_urls['base'] . ' (bundled)' : '' ) ?>">
+                        <p class="snn-help">Must serve <code>ffmpeg.js</code> and <code>814.ffmpeg.js</code> from <em>this</em> origin.</p>
                     </div>
                     <div class="snn-field">
                         <label for="snn_ffmpeg_core_url">ffmpeg core base URL</label>
                         <input type="url" id="snn_ffmpeg_core_url" name="snn_ffmpeg_core_url"
-                            value="<?= esc_attr( snn_media_get( 'ffmpeg_core_url' ) ) ?>">
-                        <p class="snn-help">Point both at your own server to run fully offline.</p>
+                            value="<?= esc_attr( snn_media_get( 'ffmpeg_core_url' ) ) ?>"
+                            placeholder="<?= esc_attr( $ffmpeg_urls['bundled'] ? $ffmpeg_urls['core'] . ' (bundled)' : '' ) ?>">
+                        <p class="snn-help">Must serve <code>ffmpeg-core.js</code> and <code>ffmpeg-core.wasm</code>.</p>
                     </div>
                 </div>
+                <p class="snn-help">
+                    Bundled versions: <code>@ffmpeg/ffmpeg 0.12.15</code>, <code>@ffmpeg/core 0.12.10</code>.
+                </p>
             </div>
 
             <!-- ============ Subtitles ============ -->

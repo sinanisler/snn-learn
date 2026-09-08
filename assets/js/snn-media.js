@@ -129,41 +129,58 @@
 
 	var ffmpegPromise = null;
 
+	// The last stretch of ffmpeg's own stderr. ffmpeg reports the real reason a
+	// conversion failed here and nowhere else, so failures quote it back.
+	var ffmpegLog = [];
+	var FFMPEG_LOG_KEEP = 40;
+
 	function loadScript( url ) {
 		return new Promise( function ( resolve, reject ) {
 			var tag = document.createElement( 'script' );
 			tag.src = url;
 			tag.onload = resolve;
 			tag.onerror = function () {
-				reject( new Error( 'Could not load ' + url ) );
+				reject( new Error( 'Could not load ' + url + '. Check that the plugin\'s assets/ffmpeg/ folder was deployed.' ) );
 			};
 			document.head.appendChild( tag );
 		} );
 	}
 
-	/** Fetches a cross-origin asset and re-serves it as a same-origin blob URL. */
-	function toBlobURL( url, type ) {
-		return fetch( url ).then( function ( response ) {
-			if ( ! response.ok ) {
-				throw new Error( 'HTTP ' + response.status + ' fetching ' + url );
+	/**
+	 * Turns anything thrown into a readable sentence.
+	 *
+	 * ffmpeg.wasm rejects with whatever its worker posted back rather than with
+	 * an Error (classes.js does `rejects[id](data)`), so `err.message` is very
+	 * often undefined. Reporting that verbatim is how a real failure ends up
+	 * displayed as a generic "could not convert" with no cause attached.
+	 */
+	function describeError( err ) {
+		if ( ! err ) {
+			return 'Unknown failure (no error detail was reported).';
+		}
+		if ( typeof err === 'string' ) {
+			return err;
+		}
+		if ( err.message ) {
+			return String( err.message );
+		}
+		if ( err.name || err.code || err.errno ) {
+			// Emscripten filesystem errors look like { name, code, errno }.
+			return 'ffmpeg error ' + ( err.name || err.code || err.errno );
+		}
+		try {
+			var json = JSON.stringify( err );
+			if ( json && '{}' !== json ) {
+				return json.slice( 0, 300 );
 			}
-			return response.blob();
-		} ).then( function ( blob ) {
-			return URL.createObjectURL( new Blob( [ blob ], { type: type } ) );
-		} );
+		} catch ( e ) {}
+		return String( err );
 	}
 
-	function resolveFFmpegClass() {
-		if ( window.FFmpegWASM && window.FFmpegWASM.FFmpeg ) {
-			return window.FFmpegWASM.FFmpeg;
-		}
-		if ( window.FFmpeg && window.FFmpeg.FFmpeg ) {
-			return window.FFmpeg.FFmpeg;
-		}
-		if ( typeof window.FFmpeg === 'function' ) {
-			return window.FFmpeg;
-		}
-		return null;
+	/** The tail of ffmpeg's log, for appending to an error message. */
+	function ffmpegLogTail( lines ) {
+		var tail = ffmpegLog.slice( -( lines || 6 ) ).join( ' | ' );
+		return tail ? ' — ffmpeg said: ' + tail : '';
 	}
 
 	function getFFmpeg( onStatus ) {
@@ -172,56 +189,68 @@
 		}
 
 		ffmpegPromise = ( async function () {
+			if ( CFG.ffmpegBundled && CFG.ffmpegMissing && CFG.ffmpegMissing.length ) {
+				throw new Error(
+					'These ffmpeg.wasm files are missing from the plugin: ' + CFG.ffmpegMissing.join( ', ' ) +
+					'. Re-deploy assets/ffmpeg/, or set a custom ffmpeg URL in Media Settings.'
+				);
+			}
+
 			if ( onStatus ) {
 				onStatus( 'Loading ffmpeg.wasm…' );
 			}
 			log( 'Loading ffmpeg.wasm from ' + CFG.ffmpegBase, 'info' );
 
-			if ( ! resolveFFmpegClass() ) {
+			if ( ! window.FFmpegWASM ) {
 				await loadScript( CFG.ffmpegBase + '/ffmpeg.js' );
 			}
-			var FFmpegClass = resolveFFmpegClass();
-			if ( ! FFmpegClass ) {
-				throw new Error( 'ffmpeg.wasm loaded but exposed no FFmpeg class. Check the UMD base URL in Media Settings.' );
+			if ( ! window.FFmpegWASM || ! window.FFmpegWASM.FFmpeg ) {
+				throw new Error( 'ffmpeg.js loaded but did not define FFmpegWASM.FFmpeg — the file may be truncated or the wrong build.' );
 			}
 
-			var ffmpeg = new FFmpegClass();
+			var ffmpeg = new window.FFmpegWASM.FFmpeg();
+
 			ffmpeg.on( 'log', function ( entry ) {
-				if ( entry && entry.message && /error|failed|invalid/i.test( entry.message ) ) {
-					log( 'ffmpeg: ' + entry.message, 'warn' );
+				if ( ! entry || ! entry.message ) {
+					return;
+				}
+				ffmpegLog.push( entry.message );
+				if ( ffmpegLog.length > FFMPEG_LOG_KEEP ) {
+					ffmpegLog.shift();
 				}
 			} );
 
-			var coreURL = await toBlobURL( CFG.ffmpegCore + '/ffmpeg-core.js', 'text/javascript' );
-			var wasmURL = await toBlobURL( CFG.ffmpegCore + '/ffmpeg-core.wasm', 'application/wasm' );
-
-			// The UMD bundle spawns its worker from a sibling chunk. When
-			// ffmpeg.js is served cross-origin that Worker construction is
-			// blocked, so fall back to a same-origin blob copy of the chunk.
-			try {
-				await ffmpeg.load( { coreURL: coreURL, wasmURL: wasmURL } );
-			} catch ( err ) {
-				log( 'Direct worker load failed (' + err.message + '); retrying with a same-origin worker copy.', 'warn' );
-				var classWorkerURL = await toBlobURL( CFG.ffmpegBase + '/814.ffmpeg.js', 'text/javascript' );
-				await ffmpeg.load( { coreURL: coreURL, wasmURL: wasmURL, classWorkerURL: classWorkerURL } );
-			}
+			// Both files are served from this origin, so they load as ordinary
+			// URLs. No blob copies, and no classWorkerURL: ffmpeg.js resolves
+			// its worker chunk relative to its own URL, which is same-origin
+			// too. Cross-origin worker construction is blocked outright, which
+			// is the failure mode this arrangement avoids.
+			await ffmpeg.load( {
+				coreURL: CFG.ffmpegCore + '/ffmpeg-core.js',
+				wasmURL: CFG.ffmpegCore + '/ffmpeg-core.wasm'
+			} );
 
 			log( 'ffmpeg.wasm ready.', 'ok' );
 			return ffmpeg;
 		} )().catch( function ( err ) {
 			ffmpegPromise = null; // allow a later retry
-			throw err;
+			throw new Error( 'ffmpeg.wasm could not start: ' + describeError( err ) );
 		} );
 
 		return ffmpegPromise;
 	}
 
 	/**
-	 * Extracts a low-bitrate mono MP3 from a video Blob, entirely in the browser.
+	 * Extracts a low-bitrate mono MP3 from a video, entirely in the browser.
 	 *
-	 * @param {Blob}     blob     Source video.
-	 * @param {string}   extension Source container extension (ffmpeg uses it to demux).
-	 * @param {Function} onStatus Progress reporter.
+	 * The source is mounted through WORKERFS rather than copied in with
+	 * writeFile. WORKERFS reads from the File/Blob on demand, so a 2 GB lesson
+	 * no longer needs 2 GB of WebAssembly heap just to be opened — which is the
+	 * limit large uploads used to hit.
+	 *
+	 * @param {Blob}     blob      Source video (a File where possible).
+	 * @param {string}   extension Container extension, used to name the input.
+	 * @param {Function} onStatus  Progress reporter.
 	 * @return {Promise<Blob>} The encoded MP3.
 	 */
 	async function extractMp3( blob, extension, onStatus ) {
@@ -234,8 +263,12 @@
 		}
 
 		var ffmpeg = await getFFmpeg( onStatus );
-		var input = 'in.' + ( extension || 'mp4' );
+
+		var mountPoint = '/snn';
+		var inputName = 'source.' + ( extension || 'mp4' );
+		var inputPath = mountPoint + '/' + inputName;
 		var output = 'out.mp3';
+		var mounted = false;
 
 		var onProgress = function ( event ) {
 			if ( onStatus && event && typeof event.progress === 'number' ) {
@@ -244,15 +277,33 @@
 			}
 		};
 		ffmpeg.on( 'progress', onProgress );
+		ffmpegLog = [];
 
 		try {
 			if ( onStatus ) {
-				onStatus( 'Loading video into ffmpeg…' );
+				onStatus( 'Preparing video…' );
 			}
-			await ffmpeg.writeFile( input, new Uint8Array( await blob.arrayBuffer() ) );
 
-			await ffmpeg.exec( [
-				'-i', input,
+			await ffmpeg.createDir( mountPoint );
+
+			// WORKERFS takes real Files directly; anything else goes in as a
+			// named blob. Either way nothing is copied into wasm memory.
+			var mountData = ( typeof File !== 'undefined' && blob instanceof File )
+				? { files: [ new File( [ blob ], inputName, { type: blob.type } ) ] }
+				: { blobs: [ { name: inputName, data: blob } ] };
+
+			await ffmpeg.mount( 'WORKERFS', mountData, mountPoint );
+			mounted = true;
+
+			if ( onStatus ) {
+				onStatus( 'Extracting audio…' );
+			}
+
+			// `-map a` fails loudly on a video with no audio track, rather than
+			// quietly producing a zero-byte file.
+			var code = await ffmpeg.exec( [
+				'-i', inputPath,
+				'-map', 'a',
 				'-vn', '-sn', '-dn',
 				'-ac', '1',
 				'-ar', String( CFG.mp3SampleRate || '22050' ),
@@ -262,16 +313,36 @@
 				output
 			] );
 
+			// exec RESOLVES with the exit code — it does not reject on failure,
+			// so this check is the only thing standing between a failed run and
+			// a confusing filesystem error from the readFile below.
+			if ( 0 !== code ) {
+				var hasAudio = ffmpegLog.some( function ( line ) {
+					return /Stream #\d+:\d+.*: Audio:/.test( line );
+				} );
+				if ( ! hasAudio ) {
+					throw new Error( 'This video has no audio track, so there is nothing to transcribe.' );
+				}
+				throw new Error( 'ffmpeg exited with code ' + code + ffmpegLogTail() );
+			}
+
 			var data = await ffmpeg.readFile( output );
 			if ( ! data || ! data.length ) {
-				throw new Error( 'ffmpeg produced an empty audio track — the source may have no audio stream.' );
+				throw new Error( 'ffmpeg produced an empty audio file' + ffmpegLogTail() );
 			}
+
 			return new Blob( [ data.buffer || data ], { type: 'audio/mpeg' } );
 		} finally {
 			ffmpeg.off( 'progress', onProgress );
-			// Free the wasm heap so the next file starts clean.
+			// Always release the mount and the output, or the next file in the
+			// queue starts against a dirty filesystem.
+			if ( mounted ) {
+				try {
+					await ffmpeg.unmount( mountPoint );
+				} catch ( e ) {}
+			}
 			try {
-				await ffmpeg.deleteFile( input );
+				await ffmpeg.deleteDir( mountPoint );
 			} catch ( e ) {}
 			try {
 				await ffmpeg.deleteFile( output );
@@ -370,8 +441,8 @@
 			refreshLibrary();
 		} ).catch( function ( err ) {
 			setQueueStatus( job.row, 'Failed', 'snn-badge-err', 'is-error' );
-			$( '.snn-queue-eta', job.row ).textContent = err.message;
-			log( 'Upload failed for ' + job.file.name + ': ' + err.message, 'err' );
+			$( '.snn-queue-eta', job.row ).textContent = describeError( err );
+			log( 'Upload failed for ' + job.file.name + ': ' + describeError( err ), 'err' );
 		} ).then( function () {
 			uploading = false;
 			runUploadLane();
@@ -515,7 +586,7 @@
 		var job = processQueue.shift();
 
 		processOne( job ).catch( function ( err ) {
-			log( 'Processing stopped for ' + job.item.original_name + ': ' + err.message, 'err' );
+			log( 'Processing stopped for ' + job.item.original_name + ': ' + describeError( err ), 'err' );
 		} ).then( function () {
 			delete queuedIds[ job.item.id ];
 			processing = false;
@@ -549,7 +620,7 @@
 			try {
 				item = await runStep( steps[ i ], item, job.file, job.force );
 			} catch ( err ) {
-				log( 'Step "' + steps[ i ] + '" failed for ' + item.original_name + ': ' + err.message, 'err' );
+				log( 'Step "' + steps[ i ] + '" failed for ' + item.original_name + ': ' + describeError( err ), 'err' );
 			}
 		}
 
@@ -608,7 +679,7 @@
 				// Record the failure server-side so the badge survives a reload.
 				await api( 'mp3-status', {
 					method: 'POST',
-					body: form( { id: item.id, status: 'error', message: err.message } )
+					body: form( { id: item.id, status: 'error', message: describeError( err ) } )
 				} ).catch( function () {} );
 				throw err;
 			}
@@ -796,7 +867,7 @@
 					renderItems();
 				} )
 				.catch( function ( err ) {
-					itemsEl.innerHTML = '<p class="snn-muted snn-empty">Could not load the library: ' + esc( err.message ) + '</p>';
+					itemsEl.innerHTML = '<p class="snn-muted snn-empty">Could not load the library: ' + esc( describeError( err ) ) + '</p>';
 				} );
 		}, immediate ? 0 : 250 );
 	}
@@ -939,8 +1010,8 @@
 				log( 'Deleted ' + item.original_name + '.', 'ok' );
 				refreshLibrary( true );
 			} ).catch( function ( err ) {
-				log( 'Delete failed: ' + err.message, 'err' );
-				window.alert( 'Delete failed: ' + err.message );
+				log( 'Delete failed: ' + describeError( err ), 'err' );
+				window.alert( 'Delete failed: ' + describeError( err ) );
 			} );
 			return;
 		}
