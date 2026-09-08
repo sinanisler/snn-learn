@@ -12,6 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'page-orders.php';
+require_once plugin_dir_path( __FILE__ ) . 'media-library.php';
 
 // ============================================================
 // 1. DATABASE
@@ -110,6 +111,8 @@ add_action( 'admin_menu', function () {
         2
     );
     add_submenu_page( 'snn-learn', 'SNN Learn Dashboard',  'Dashboard',       'manage_options', 'snn-learn',                     'snn_learn_dashboard_page'           );
+    add_submenu_page( 'snn-learn', 'Media Library',         'Media Library',   'manage_options', 'snn-learn-media',               'snn_media_library_page'             );
+    add_submenu_page( 'snn-learn', 'Media Settings',        'Media Settings',  'manage_options', 'snn-learn-media-settings',      'snn_media_settings_page'            );
     add_submenu_page( 'snn-learn', 'Video Player',          'Video Player',    'manage_options', 'snn-learn-settings',            'snn_learn_video_settings_page'      );
     add_submenu_page( 'snn-learn', 'Emails',                'Emails',          'manage_options', 'snn-learn-settings-emails',     'snn_learn_emails_settings_page'     );
     add_submenu_page( 'snn-learn', 'User Permalinks',       'User Permalinks', 'manage_options', 'snn-learn-settings-permalinks', 'snn_learn_permalinks_settings_page' );
@@ -126,6 +129,9 @@ add_action( 'admin_menu', function () {
 add_action( 'admin_head', function () {
     $screen = get_current_screen();
     if ( ! $screen || strpos( $screen->id, 'snn-learn' ) === false ) return;
+    // The Media Library module ships its own stylesheet; Tailwind's preflight is
+    // injected at runtime and would reset it, so skip those screens entirely.
+    if ( strpos( $screen->id, 'snn-learn-media' ) !== false ) return;
     $js_url = plugin_dir_url( __FILE__ ) . 'assets/js/';
     ?>
     <script src="<?= esc_url( $js_url . 'tailwind.min.js' ) ?>"></script>
