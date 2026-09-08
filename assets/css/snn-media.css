@@ -137,6 +137,9 @@
     background: var(--snn-tag-color);
     border-color: var(--snn-tag-color);
     color: #fff;
+    /* White on a pale tag colour would vanish. A hard 1px offset keeps the
+       letters readable at any colour without softening them. */
+    text-shadow: 1px 1px 0 #000;
 }
 .snn-tag-count { opacity: .7; font-weight: 500; }
 
