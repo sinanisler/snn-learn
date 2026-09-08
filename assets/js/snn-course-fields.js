@@ -646,6 +646,63 @@
 		var addButton = $( '#snn-cf-add-field' );
 		var empty = $( '.snn-cf-empty' );
 
+		function setEditorOpen( editor, open ) {
+			var toggle = $( '.snn-cf-field-toggle', editor );
+			var body = $( '.snn-cf-field-body', editor );
+			if ( ! toggle || ! body ) {
+				return;
+			}
+			toggle.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+			body.hidden = ! open;
+			editor.classList.toggle( 'is-open', !! open );
+		}
+
+		function isEditorOpen( editor ) {
+			return 'true' === $( '.snn-cf-field-toggle', editor ).getAttribute( 'aria-expanded' );
+		}
+
+		/** Rebuilds the collapsed bar summary from the row's own inputs. */
+		function refreshEditorMeta( editor ) {
+			var meta = $( '.snn-cf-field-meta', editor );
+			if ( ! meta ) {
+				return;
+			}
+
+			function val( suffix ) {
+				var el = editor.querySelector( '[name$="[' + suffix + ']"]' );
+				return el ? el.value.trim() : '';
+			}
+
+			function flag( suffix ) {
+				var boxes = editor.querySelectorAll( 'input[type="checkbox"][name$="[' + suffix + ']"]' );
+				return boxes.length ? boxes[ boxes.length - 1 ].checked : false;
+			}
+
+			var typeSelect = $( '.snn-cf-type-select', editor );
+			var parts = [];
+
+			if ( val( 'slug' ) ) {
+				parts.push( val( 'slug' ) );
+			}
+			if ( typeSelect ) {
+				parts.push( typeSelect.options[ typeSelect.selectedIndex ].text );
+			}
+			if ( flag( 'repeater' ) ) {
+				parts.push( 'repeater' );
+			}
+			if ( flag( 'quick_edit' ) ) {
+				parts.push( 'quick edit' );
+			}
+			if ( flag( 'ai_enabled' ) ) {
+				parts.push( 'AI' );
+			}
+			if ( val( 'width' ) ) {
+				parts.push( val( 'width' ) + '%' );
+			}
+
+			meta.textContent = parts.join( ' · ' );
+		}
+
 		function refreshEmpty() {
 			if ( empty ) {
 				empty.hidden = list.children.length > 0;
@@ -672,6 +729,7 @@
 			list.appendChild( editor );
 			reindexFields();
 
+			setEditorOpen( editor, true );
 			editor.scrollIntoView( { behavior: 'smooth', block: 'center' } );
 			var firstInput = $( 'input[type="text"]', editor );
 			if ( firstInput ) {
@@ -682,6 +740,14 @@
 		list.addEventListener( 'click', function ( event ) {
 			var editor = event.target.closest( '.snn-cf-field-editor' );
 			if ( ! editor ) {
+				return;
+			}
+
+			// The toggle sits inside the bar, so it is checked before the
+			// move/remove buttons that share it.
+			if ( event.target.closest( '.snn-cf-field-toggle' ) ) {
+				event.preventDefault();
+				setEditorOpen( editor, ! isEditorOpen( editor ) );
 				return;
 			}
 
@@ -707,13 +773,34 @@
 			}
 		} );
 
-		// The collapsed bar shows the label, so keep it live while typing.
+		$$( '.snn-cf-editor-toggle-all' ).forEach( function ( button ) {
+			button.addEventListener( 'click', function ( event ) {
+				event.preventDefault();
+				var open = '1' === button.dataset.open;
+				$$( '.snn-cf-field-editor', list ).forEach( function ( editor ) {
+					setEditorOpen( editor, open );
+				} );
+			} );
+		} );
+
+		// The collapsed bar mirrors the row's own inputs, so keep it honest
+		// while the author types.
 		list.addEventListener( 'input', function ( event ) {
-			if ( ! event.target.classList.contains( 'snn-cf-label-input' ) ) {
+			var editor = event.target.closest( '.snn-cf-field-editor' );
+			if ( ! editor ) {
 				return;
 			}
+			if ( event.target.classList.contains( 'snn-cf-label-input' ) ) {
+				$( '.snn-cf-field-title', editor ).textContent = event.target.value || 'New Field';
+			}
+			refreshEditorMeta( editor );
+		} );
+
+		list.addEventListener( 'change', function ( event ) {
 			var editor = event.target.closest( '.snn-cf-field-editor' );
-			$( '.snn-cf-field-title', editor ).textContent = event.target.value || 'New Field';
+			if ( editor ) {
+				refreshEditorMeta( editor );
+			}
 		} );
 
 		var restore = $( '.snn-cf-restore' );

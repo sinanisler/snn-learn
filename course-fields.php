@@ -596,7 +596,7 @@ function snn_cf_render_field( $field, $stored ) {
     $summary = snn_cf_value_summary( $field, $stored );
 
     printf(
-        '<div class="snn-cf-field" style="flex-basis:%s%%" data-type="%s" data-cols="%d" data-slug="%s" data-repeater="%d">',
+        '<div class="snn-cf-field is-open" style="flex-basis:%s%%" data-type="%s" data-cols="%d" data-slug="%s" data-repeater="%d">',
         esc_attr( $field['width'] ),
         esc_attr( $field['type'] ),
         (int) $def['cols'],
@@ -604,10 +604,11 @@ function snn_cf_render_field( $field, $stored ) {
         (int) $field['repeater']
     );
 
-    // Every field starts collapsed — the header carries enough to decide
-    // whether it is worth opening.
+    // Fields start open here — writing a lesson means touching most of them,
+    // and a click-to-open per field would be friction on every save. The
+    // headers are for folding away the ones a given lesson does not use.
     printf(
-        '<button type="button" class="snn-cf-head" aria-expanded="false">'
+        '<button type="button" class="snn-cf-head" aria-expanded="true">'
         . '<span class="snn-cf-caret" aria-hidden="true"></span>'
         . '<span class="snn-cf-head-label">%s</span>'
         . '<span class="snn-cf-summary %s">%s</span>'
@@ -617,7 +618,7 @@ function snn_cf_render_field( $field, $stored ) {
         esc_html( '' === $summary ? 'empty' : $summary )
     );
 
-    echo '<div class="snn-cf-body" hidden>';
+    echo '<div class="snn-cf-body">';
 
     if ( '' !== $field['help'] ) {
         printf( '<p class="snn-cf-help">%s</p>', esc_html( $field['help'] ) );
@@ -1309,6 +1310,8 @@ function snn_cf_settings_page() {
                 <div class="snn-cf-card-head">
                     <h2>Fields</h2>
                     <div class="snn-cf-card-actions">
+                        <button type="button" class="button-link snn-cf-editor-toggle-all" data-open="1">Expand all</button>
+                        <button type="button" class="button-link snn-cf-editor-toggle-all" data-open="0">Collapse all</button>
                         <button type="button" class="button" id="snn-cf-add-field">+ Add Field</button>
                         <button type="submit" class="button snn-cf-restore" name="snn_cf_restore" value="1">Restore Defaults</button>
                     </div>
@@ -1332,13 +1335,45 @@ function snn_cf_settings_page() {
     <?php
 }
 
+/**
+ * Sums a field definition up for its collapsed bar: slug, type and the flags
+ * that change how it behaves, so the list reads without opening anything.
+ */
+function snn_cf_field_editor_summary( $field, $types ) {
+    $parts = [];
+
+    if ( '' !== $field['slug'] ) {
+        $parts[] = $field['slug'];
+    }
+
+    $parts[] = $types[ $field['type'] ]['label'] ?? $field['type'];
+
+    if ( $field['repeater'] ) {
+        $parts[] = 'repeater';
+    }
+    if ( $field['quick_edit'] ) {
+        $parts[] = 'quick edit';
+    }
+    if ( $field['ai_enabled'] ) {
+        $parts[] = 'AI';
+    }
+
+    $parts[] = $field['width'] . '%';
+
+    return implode( ' · ', $parts );
+}
+
 /** One editable row in the field registry table. */
 function snn_cf_render_field_editor( $index, $field, $types, $targets ) {
     $name = 'snn_cf_fields[' . $index . ']';
     ?>
     <div class="snn-cf-field-editor" data-index="<?= esc_attr( $index ) ?>">
         <div class="snn-cf-field-bar">
-            <span class="snn-cf-field-title"><?= esc_html( $field['label'] ?: 'New Field' ) ?></span>
+            <button type="button" class="snn-cf-field-toggle" aria-expanded="false">
+                <span class="snn-cf-caret" aria-hidden="true"></span>
+                <span class="snn-cf-field-title"><?= esc_html( $field['label'] ?: 'New Field' ) ?></span>
+                <span class="snn-cf-field-meta"><?= esc_html( snn_cf_field_editor_summary( $field, $types ) ) ?></span>
+            </button>
             <span class="snn-cf-field-actions">
                 <button type="button" class="button-link snn-cf-move-up" title="Move up">&#9650;</button>
                 <button type="button" class="button-link snn-cf-move-down" title="Move down">&#9660;</button>
@@ -1346,7 +1381,7 @@ function snn_cf_render_field_editor( $index, $field, $types, $targets ) {
             </span>
         </div>
 
-        <div class="snn-cf-field-body">
+        <div class="snn-cf-field-body" hidden>
             <div class="snn-cf-col" style="flex-basis:180px">
                 <label>Group Name</label>
                 <input type="text" name="<?= esc_attr( $name ) ?>[group]" value="<?= esc_attr( $field['group'] ) ?>" placeholder="Course Fields">
