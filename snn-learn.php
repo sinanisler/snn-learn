@@ -24,6 +24,8 @@ function snn_learn_create_table() {
     $charset = $wpdb->get_charset_collate();
 
     // dbDelta rules: lowercase types, exactly one space between column name and type, two spaces before (id) in PRIMARY KEY
+    // is_course = 1 marks course-enrollment rows (post_id = course_id)
+    // is_lesson = 0 marks chapter auto-completion rows
     $sql = "CREATE TABLE $table (
         id bigint unsigned NOT NULL AUTO_INCREMENT,
         user_id bigint unsigned NOT NULL,
@@ -32,13 +34,20 @@ function snn_learn_create_table() {
         enrolled_at int unsigned NOT NULL,
         completed_at int unsigned DEFAULT NULL,
         last_activity_at int unsigned DEFAULT NULL,
+        is_course tinyint(1) NOT NULL DEFAULT 0,
+        is_lesson tinyint(1) NOT NULL DEFAULT 1,
         PRIMARY KEY  (id),
         UNIQUE KEY uq_user_post (user_id, post_id),
         KEY idx_course_id (course_id),
         KEY idx_user_id (user_id),
         KEY idx_completed_at (completed_at),
         KEY idx_enrolled_at (enrolled_at),
-        KEY idx_last_activity_at (last_activity_at)
+        KEY idx_last_activity_at (last_activity_at),
+        KEY idx_is_course (is_course),
+        KEY idx_is_lesson (is_lesson),
+        KEY idx_user_course (user_id, course_id),
+        KEY idx_course_activity (is_course, last_activity_at),
+        KEY idx_user_course_status (user_id, is_course, completed_at, last_activity_at)
     ) $charset;";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -48,9 +57,9 @@ register_activation_hook( __FILE__, 'snn_learn_create_table' );
 
 // Auto-create / upgrade table on every plugin load — safe to run repeatedly (dbDelta is idempotent)
 add_action( 'plugins_loaded', function () {
-    if ( get_option( 'snn_learn_db_version' ) !== '2.2' ) {
+    if ( get_option( 'snn_learn_db_version' ) !== '2.4' ) {
         snn_learn_create_table();
-        update_option( 'snn_learn_db_version', '2.2' );
+        update_option( 'snn_learn_db_version', '2.4' );
     }
 } );
 
@@ -117,10 +126,124 @@ add_action( 'admin_menu', function () {
     add_submenu_page( 'snn-learn', 'Emails',                'Emails',          'manage_options', 'snn-learn-settings-emails',     'snn_learn_emails_settings_page'     );
     add_submenu_page( 'snn-learn', 'User Permalinks',       'User Permalinks', 'manage_options', 'snn-learn-settings-permalinks', 'snn_learn_permalinks_settings_page' );
     add_submenu_page( 'snn-learn', 'Page Ordering',         'Page Ordering',   'manage_options', 'snn-learn-settings-ordering',   'snn_learn_ordering_settings_page'   );
-    add_submenu_page( 'snn-learn', 'Danger Zone',           'Danger Zone',     'manage_options', 'snn-learn-settings-danger',     'snn_learn_danger_settings_page'     );
     add_submenu_page( 'snn-learn', 'Shortcodes',            'Shortcodes',      'manage_options', 'snn-learn-shortcodes',          'snn_learn_shortcodes_page'          );
     // Note: chapters and lessons share the same post type — depth in hierarchy determines the role.
 } );
+
+// ============================================================
+// 3b. PLUGIN LIST — UNINSTALL & CLEAR DATA
+// ============================================================
+
+/**
+ * Add a red "Uninstall & Clear Data" action link on the Plugins list page.
+ * Two-step JavaScript confirmation before the action fires.
+ */
+add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), 'snn_learn_plugin_action_links' );
+function snn_learn_plugin_action_links( $links ) {
+    $url = wp_nonce_url(
+        admin_url( 'admin-post.php?action=snn_learn_uninstall_data' ),
+        'snn_learn_uninstall_data'
+    );
+    $links['snn_uninstall'] = sprintf(
+        '<a href="%s" class="snn-uninstall-link" style="color:#dc2626;font-weight:600" data-confirm="1">Uninstall &amp; Clear Data</a>',
+        esc_url( $url )
+    );
+    return $links;
+}
+
+/**
+ * Handle the uninstall-and-clear-data admin-post action.
+ * Drops the entire snn_learn_enrollments table and wipes all plugin options.
+ */
+add_action( 'admin_post_snn_learn_uninstall_data', 'snn_learn_handle_uninstall_data' );
+function snn_learn_handle_uninstall_data() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( 'You do not have permission to perform this action.' );
+    }
+
+    check_admin_referer( 'snn_learn_uninstall_data' );
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'snn_learn_enrollments';
+
+    // Drop the custom table completely
+    $wpdb->query( "DROP TABLE IF EXISTS `$table`" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+
+    // Wipe all snn_learn_* options and related settings
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'snn_learn_%'"
+    );
+    // Also remove the page-ordering option (set by page-orders.php integration)
+    delete_option( 'spo_allowed_post_types' );
+
+    // Clear any cached values
+    wp_cache_flush();
+
+    // Delete any plugin transients (stored as _transient_* / _transient_timeout_* in options)
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_snn_learn_analytics_%' OR option_name LIKE '_transient_timeout_snn_learn_analytics_%'"
+    );
+
+    // Redirect back to plugins page with a success flag
+    wp_safe_redirect( add_query_arg( 'snn_learn_cleared', '1', admin_url( 'plugins.php' ) ) );
+    exit;
+}
+
+/**
+ * Show a success notice on the plugins page after data is cleared.
+ */
+add_action( 'admin_notices', 'snn_learn_uninstall_notice' );
+function snn_learn_uninstall_notice() {
+    $screen = get_current_screen();
+    if ( ! $screen || $screen->id !== 'plugins' ) {
+        return;
+    }
+    if ( ! isset( $_GET['snn_learn_cleared'] ) ) {
+        return;
+    }
+    ?>
+    <div class="notice notice-success is-dismissible">
+        <p><strong>SNN Learn:</strong> All data has been cleared. The enrollments table was dropped and all plugin settings were removed. You can now deactivate and delete the plugin, or re-activate it to start fresh.</p>
+    </div>
+    <?php
+}
+
+/**
+ * Inline JS on the plugins page — intercepts the uninstall link with
+ * a two-step confirmation dialog.
+ */
+add_action( 'admin_footer-plugins.php', 'snn_learn_plugins_page_js' );
+function snn_learn_plugins_page_js() {
+    ?>
+    <script>
+    (function () {
+        var link = document.querySelector('.snn-uninstall-link');
+        if (!link) return;
+
+        link.addEventListener('click', function (e) {
+            e.preventDefault();
+            var step1 = confirm(
+                'WARNING: This will permanently DELETE all SNN Learn data.\n\n' +
+                '• The enrollments table will be DROPPED\n' +
+                '• All plugin settings will be removed\n' +
+                '• All user progress and course completion records will be gone forever\n\n' +
+                'This cannot be undone. Are you sure?'
+            );
+            if (!step1) return;
+
+            var step2 = confirm(
+                'FINAL CONFIRMATION\n\n' +
+                'This is your last chance. All SNN Learn data will be wiped clean.\n\n' +
+                'Click OK to proceed, or Cancel to abort.'
+            );
+            if (step2) {
+                window.location.href = link.href;
+            }
+        });
+    })();
+    </script>
+    <?php
+}
 
 // ============================================================
 // 4. ADMIN ASSETS — injected only on SNN Learn pages
@@ -143,7 +266,6 @@ add_action( 'admin_head', function () {
         .snn-learn-settings-emails .wrap,
         .snn-learn-settings-permalinks .wrap,
         .snn-learn-settings-ordering .wrap,
-        .snn-learn-settings-danger .wrap,
         .snn-learn-shortcodes .wrap { max-width: 100%; }
     </style>
     <?php
@@ -273,11 +395,20 @@ function snn_learn_get_course_lessons( $course_id ) {
  * Calculate completion percentage for a user in a course (0–100).
  */
 function snn_learn_calc_progress( $user_id, $course_id ) {
+    static $cache = [];
+    $key = (int) $user_id . ':' . (int) $course_id;
+    if ( isset( $cache[ $key ] ) ) {
+        return $cache[ $key ];
+    }
+
     global $wpdb;
     $t           = $wpdb->prefix . 'snn_learn_enrollments';
     $all_lessons = snn_learn_get_course_lessons( $course_id );
     $total       = count( $all_lessons );
-    if ( ! $total ) return 0;
+    if ( ! $total ) {
+        $cache[ $key ] = 0;
+        return 0;
+    }
 
     $placeholders = implode( ',', array_fill( 0, $total, '%d' ) );
     $args         = array_merge( [ (int) $user_id ], $all_lessons );
@@ -286,7 +417,9 @@ function snn_learn_calc_progress( $user_id, $course_id ) {
         $args
     ) );
 
-    return min( 100, (int) round( $completed / $total * 100 ) );
+    $result = min( 100, (int) round( $completed / $total * 100 ) );
+    $cache[ $key ] = $result;
+    return $result;
 }
 
 /**
@@ -299,10 +432,10 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
     $t   = $wpdb->prefix . 'snn_learn_enrollments';
     $now = time();
 
-    // 1. Ensure the top-level course enrollment row exists
+    // 1. Ensure the top-level course enrollment row exists (is_course=1, is_lesson=0)
     if ( $post_id != $course_id ) {
         $result = $wpdb->query( $wpdb->prepare(
-            "INSERT IGNORE INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at) VALUES (%d, %d, %d, %d, %d)",
+            "INSERT IGNORE INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at, is_course, is_lesson) VALUES (%d, %d, %d, %d, %d, 1, 0)",
             (int) $user_id, (int) $course_id, (int) $course_id, $now, $now
         ) );
         // Fire action only on the very first enrollment in this course
@@ -313,12 +446,13 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
 
     // 2. Upsert the lesson row — single round-trip via ON DUPLICATE KEY UPDATE.
     // COALESCE preserves an existing completed_at (never un-completes a lesson).
+    // is_lesson defaults to 1 via the schema; only is_course is explicitly 0.
     // Two query variants: when $mark_complete is false we omit completed_at from
     // the INSERT entirely so it defaults to NULL and the UPDATE clause ignores it.
     if ( $mark_complete ) {
         $wpdb->query( $wpdb->prepare(
-            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
-             VALUES (%d, %d, %d, %d, %d, %d)
+            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at, is_course)
+             VALUES (%d, %d, %d, %d, %d, %d, 0)
              ON DUPLICATE KEY UPDATE
                  last_activity_at = VALUES(last_activity_at),
                  completed_at     = COALESCE(completed_at, VALUES(completed_at))",
@@ -326,8 +460,8 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
         ) );
     } else {
         $wpdb->query( $wpdb->prepare(
-            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at)
-             VALUES (%d, %d, %d, %d, %d)
+            "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, last_activity_at, is_course)
+             VALUES (%d, %d, %d, %d, %d, 0)
              ON DUPLICATE KEY UPDATE
                  last_activity_at = VALUES(last_activity_at)",
             (int) $user_id, (int) $post_id, (int) $course_id, $now, $now
@@ -340,6 +474,9 @@ function snn_learn_record_lesson( $user_id, $post_id, $course_id, $mark_complete
         snn_learn_maybe_complete_chapter( $user_id, $post_id, $course_id, $now );
         snn_learn_maybe_complete_course( $user_id, $course_id, $now );
     }
+
+    // 4. Bust dashboard cache so KPIs stay fresh (debounced by transient TTL)
+    snn_learn_bust_dashboard_cache();
 }
 
 /**
@@ -364,9 +501,10 @@ function snn_learn_maybe_complete_chapter( $user_id, $lesson_id, $course_id, $no
 
     // Single ODKU upsert — eliminates the SELECT round-trip.
     // COALESCE preserves a pre-existing completed_at (chapter stays complete once completed).
+    // is_course=0, is_lesson=0 — chapter rows are neither course nor lesson.
     $wpdb->query( $wpdb->prepare(
-        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
-         VALUES (%d, %d, %d, %d, %d, %d)
+        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at, is_course, is_lesson)
+         VALUES (%d, %d, %d, %d, %d, %d, 0, 0)
          ON DUPLICATE KEY UPDATE
              completed_at     = COALESCE(completed_at, VALUES(completed_at)),
              last_activity_at = VALUES(last_activity_at)",
@@ -398,10 +536,19 @@ function snn_learn_maybe_complete_course( $user_id, $course_id, $now = null ) {
 
     if ( $done_count < count( $all_lessons ) ) return;
 
+    // Guard: only fire completion action once — check if already completed
+    $already_completed = (bool) $wpdb->get_var( $wpdb->prepare(
+        "SELECT completed_at FROM $t WHERE user_id = %d AND post_id = %d AND completed_at IS NOT NULL",
+        (int) $user_id, (int) $course_id
+    ) );
+    if ( $already_completed ) {
+        return;
+    }
+
     // All lessons done — stamp completed_at on the course row (COALESCE never un-completes it)
     $wpdb->query( $wpdb->prepare(
-        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at)
-         VALUES (%d, %d, %d, %d, %d, %d)
+        "INSERT INTO $t (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at, is_course, is_lesson)
+         VALUES (%d, %d, %d, %d, %d, %d, 1, 0)
          ON DUPLICATE KEY UPDATE
              completed_at     = COALESCE(completed_at, VALUES(completed_at)),
              last_activity_at = VALUES(last_activity_at)",
@@ -545,16 +692,79 @@ add_filter( 'rest_post_dispatch', function ( $response, $server, $request ) {
 }, 10, 3 );
 
 // ============================================================
-// 10. SHORTCODES
+// 10. SHARED HELPERS
+// ============================================================
+
+/**
+ * Deterministic 32-character alphanumeric certificate hash (a-z0-9).
+ * Seeded by user_id + course_id — same seed always produces the same hash.
+ * Used by bricks.php and emails.php.
+ */
+function snn_learn_cert_hash( $user_id, $course_id ) {
+    $seed   = $user_id . '+' . $course_id;
+    $raw    = hash( 'sha256', $seed );
+    $chars  = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    $result = '';
+    for ( $i = 0; $i < 32; $i++ ) {
+        $byte    = hexdec( substr( $raw, $i * 2, 2 ) );
+        $result .= $chars[ $byte % 36 ];
+    }
+    return $result;
+}
+
+// ============================================================
+// 10b. DASHBOARD CACHE BUSTER
+// ============================================================
+
+/**
+ * Invalidate all dashboard transient caches.
+ * Called automatically on enrollment, lesson completion, and course completion.
+ * Uses a direct DELETE on the options table since WP has no wildcard transient delete.
+ */
+function snn_learn_bust_dashboard_cache() {
+    global $wpdb;
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options}
+         WHERE option_name LIKE '_transient_snn_dashboard_v2_%'
+            OR option_name LIKE '_transient_timeout_snn_dashboard_v2_%'"
+    );
+    // Also bust the REST API analytics overview cache
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options}
+         WHERE option_name LIKE '_transient_snn_learn_analytics_overview_%'
+            OR option_name LIKE '_transient_timeout_snn_learn_analytics_overview_%'"
+    );
+}
+
+// Bust cache on every enrollment, lesson completion, and course completion.
+// These hooks fire from snn_learn_record_lesson() and snn_learn_maybe_complete_course().
+add_action( 'snn_learn_first_enrollment', function () { snn_learn_bust_dashboard_cache(); } );
+add_action( 'snn_learn_course_completed', function () { snn_learn_bust_dashboard_cache(); } );
+
+// Also bust on the REST complete endpoint (covers lesson completions)
+add_action( 'rest_api_init', function () {
+    // We bust after any successful POST to /complete or enrollment endpoints
+} );
+// Instead, bust on the core record_lesson function by hooking a small wrapper.
+// We add a custom action inside snn_learn_record_lesson below.
+
+// ============================================================
+// 11. SHORTCODES & REST API
 // ============================================================
 
 require_once plugin_dir_path( __FILE__ ) . 'video-player.php';
 require_once plugin_dir_path( __FILE__ ) . 'shortcodes.php';
 require_once plugin_dir_path( __FILE__ ) . 'emails.php';
+require_once plugin_dir_path( __FILE__ ) . 'rest-api.php';    // Extended REST API (33 admin/reporting endpoints)
 
 // Third-party integrations — only load when the relevant theme/plugin is active
 if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() === 'bricks' ) {
     require_once plugin_dir_path( __FILE__ ) . 'third_party/bricks.php';
+
+    // Register SNN Learn Bricks Builder elements
+    add_action( 'init', function () {
+        \Bricks\Elements::register_element( plugin_dir_path( __FILE__ ) . 'third_party/video-player.php' );
+    }, 11 );
 }
 
 // ----------------------------------------------------------
@@ -570,7 +780,7 @@ if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() ==
 
 
 // ============================================================
-// 11. CHAPTER → FIRST LESSON REDIRECT
+// 12. CHAPTER → FIRST LESSON REDIRECT
 // ============================================================
 
 add_action( 'template_redirect', function () {
@@ -604,11 +814,11 @@ add_action( 'template_redirect', function () {
 } );
 
 // ============================================================
-// 12. COMMENT LIST SHORTCODE — moved to shortcodes.php
+// 13. COMMENT LIST SHORTCODE — moved to shortcodes.php
 // ============================================================
 
 // ============================================================
-// 13. ADMIN: COMMENT RATINGS COLUMN
+// 14. ADMIN: COMMENT RATINGS COLUMN
 // ============================================================
 
 add_filter( 'manage_edit-comments_columns', 'snn_learn_add_comment_rating_column' );
@@ -635,7 +845,7 @@ function snn_learn_display_comment_rating_column( $column, $comment_id ) {
 }
 
 // ============================================================
-// 14. ADMIN: COMMENT RATING METABOX
+// 15. ADMIN: COMMENT RATING METABOX
 // ============================================================
 
 add_action( 'add_meta_boxes_comment', 'snn_learn_add_comment_rating_metabox' );
@@ -719,7 +929,7 @@ function snn_learn_save_comment_rating_metabox( $comment_id ) {
 }
 
 // ============================================================
-// 15. USER PERMALINKS
+// 16. USER PERMALINKS
 // ============================================================
 
 /**

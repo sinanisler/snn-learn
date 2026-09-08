@@ -141,7 +141,7 @@ function snn_learn_bricks_get_completed_date( $post ) {
     $t         = $wpdb->prefix . 'snn_learn_enrollments';
     $timestamp = $wpdb->get_var( $wpdb->prepare(
         "SELECT MAX(completed_at) FROM $t
-          WHERE user_id = %d AND course_id = %d AND post_id != course_id AND completed_at IS NOT NULL",
+          WHERE user_id = %d AND course_id = %d AND is_course = 0 AND completed_at IS NOT NULL",
         $user_id, $course_id
     ) );
 
@@ -166,18 +166,5 @@ function snn_learn_bricks_get_certificate_hash( $post ) {
         return '';
     }
 
-    $seed = $user_id . '+' . $course_id;
-    $raw  = hash( 'sha256', $seed ); // 64 hex chars (0-9, a-f)
-
-    // Expand character set to a-z0-9 (36 chars) while staying deterministic.
-    // Walk through the raw hex string two hex digits at a time (0-255) and map
-    // each byte value to one of the 36 allowed characters.
-    $chars  = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    $result = '';
-    for ( $i = 0; $i < 32; $i++ ) {
-        $byte    = hexdec( substr( $raw, $i * 2, 2 ) ); // 0-255
-        $result .= $chars[ $byte % 36 ];
-    }
-
-    return $result;
+    return snn_learn_cert_hash( $user_id, $course_id );
 }

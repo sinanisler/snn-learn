@@ -66,10 +66,15 @@ function snn_learn_email_defaults() {
 function snn_learn_get_email( $key ) {
     $defaults = snn_learn_email_defaults();
     $value    = get_option( 'snn_learn_email_' . $key, null );
-    if ( null !== $value ) {
+    $default  = $defaults[ $key ] ?? '';
+
+    // Return saved value only when non-null AND non-empty.
+    // An empty saved value (e.g. user cleared the subject field)
+    // falls back to the hard-coded default.
+    if ( null !== $value && '' !== $value ) {
         return $value;
     }
-    return $defaults[ $key ] ?? '';
+    return $default;
 }
 
 // ----------------------------------------------------------
@@ -91,23 +96,6 @@ function snn_learn_email_send( $to, $subject, $body ) {
     return wp_mail( $to, $subject, $body, $headers );
 }
 
-// ----------------------------------------------------------
-// CERTIFICATE HASH HELPER
-// Deterministic 32-char alphanumeric hash from user_id + course_id.
-// Same logic as bricks.php::snn_learn_bricks_get_certificate_hash
-// but without requiring a $post object.
-// ----------------------------------------------------------
-function snn_learn_email_cert_hash( $user_id, $course_id ) {
-    $seed   = $user_id . '+' . $course_id;
-    $raw    = hash( 'sha256', $seed );
-    $chars  = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    $result = '';
-    for ( $i = 0; $i < 32; $i++ ) {
-        $byte    = hexdec( substr( $raw, $i * 2, 2 ) );
-        $result .= $chars[ $byte % 36 ];
-    }
-    return $result;
-}
 
 // ============================================================
 // 1. COURSE COMPLETION EMAIL
@@ -136,7 +124,7 @@ function snn_learn_email_course_completed( $user_id, $course_id ) {
     $cert_url = add_query_arg( [
         'cid'            => $course_id,
         'uid'            => $user_id,
-        'certificate_id' => snn_learn_email_cert_hash( $user_id, $course_id ),
+        'certificate_id' => snn_learn_cert_hash( $user_id, $course_id ),
         'completion_date'=> wp_date( 'Y-m-d' ),
     ], home_url( '/certificate/' ) );
 
@@ -301,7 +289,7 @@ function snn_learn_email_inactivity_cron() {
     $stale = $wpdb->get_results( $wpdb->prepare(
         "SELECT user_id, course_id, last_activity_at
          FROM $t
-         WHERE post_id = course_id
+         WHERE is_course = 1
            AND last_activity_at < %d
            AND last_activity_at > %d
            AND completed_at IS NULL
@@ -337,7 +325,7 @@ function snn_learn_email_inactivity_cron() {
         // Find the last lesson the user interacted with for a "resume" link
         $last_lesson = $wpdb->get_row( $wpdb->prepare(
             "SELECT post_id FROM $t
-             WHERE user_id = %d AND course_id = %d AND post_id != course_id
+             WHERE user_id = %d AND course_id = %d AND is_course = 0
              ORDER BY last_activity_at DESC LIMIT 1",
             $user_id, $course_id
         ) );
