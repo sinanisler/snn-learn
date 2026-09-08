@@ -13,6 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 require_once plugin_dir_path( __FILE__ ) . 'page-orders.php';
 require_once plugin_dir_path( __FILE__ ) . 'media-library.php';
+require_once plugin_dir_path( __FILE__ ) . 'course-fields.php';
 
 // ============================================================
 // 1. DATABASE
@@ -121,6 +122,7 @@ add_action( 'admin_menu', function () {
     );
     add_submenu_page( 'snn-learn', 'SNN Learn Dashboard',  'Dashboard',       'manage_options', 'snn-learn',                     'snn_learn_dashboard_page'           );
     add_submenu_page( 'snn-learn', 'Media Library',         'Media Library',   'manage_options', 'snn-learn-media',               'snn_media_library_page'             );
+    add_submenu_page( 'snn-learn', 'Course Fields',         'Course Fields',   'manage_options', 'snn-learn-course-fields',       'snn_cf_settings_page'               );
     add_submenu_page( 'snn-learn', 'Media Settings',        'Media Settings',  'manage_options', 'snn-learn-media-settings',      'snn_media_settings_page'            );
     add_submenu_page( 'snn-learn', 'Video Player',          'Video Player',    'manage_options', 'snn-learn-settings',            'snn_learn_video_settings_page'      );
     add_submenu_page( 'snn-learn', 'Emails',                'Emails',          'manage_options', 'snn-learn-settings-emails',     'snn_learn_emails_settings_page'     );

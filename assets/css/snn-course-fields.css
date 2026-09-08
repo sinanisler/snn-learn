@@ -1,0 +1,380 @@
+/* SNN Learn — Course Fields
+   Scoped under .snn-cf-* so nothing leaks into the rest of wp-admin. */
+
+/* ---------- Meta box ---------- */
+.snn-cf-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 18px;
+	margin: 4px 0;
+}
+
+.snn-cf-field {
+	flex-grow: 1;
+	min-width: 220px;
+	box-sizing: border-box;
+}
+
+.snn-cf-label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 6px;
+	font-weight: 600;
+	font-size: 13px;
+	color: #1e1e1e;
+}
+.snn-cf-label code {
+	background: #f0f0f1;
+	color: #6b7280;
+	font-size: 11px;
+	padding: 1px 6px;
+	border-radius: 4px;
+}
+
+.snn-cf-help {
+	margin: 0 0 8px;
+	font-size: 12px;
+	color: #6b7280;
+}
+
+.snn-cf-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.snn-cf-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.snn-cf-input {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.snn-cf-input input[type="text"],
+.snn-cf-input input[type="url"],
+.snn-cf-input input[type="number"],
+.snn-cf-input input[type="date"],
+.snn-cf-input select,
+.snn-cf-input textarea {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.snn-cf-input textarea {
+	resize: vertical;
+	min-height: 70px;
+}
+
+.snn-cf-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	padding-top: 4px;
+}
+
+.snn-cf-handle {
+	color: #b0b5bb;
+	cursor: grab;
+	line-height: 30px;
+	user-select: none;
+	letter-spacing: -2px;
+}
+
+.snn-cf-remove {
+	color: #b32d2e !important;
+	text-decoration: none !important;
+	line-height: 30px;
+	padding: 0 4px;
+}
+.snn-cf-remove:hover { color: #8a2424 !important; }
+
+.snn-cf-add { margin-top: 8px !important; }
+
+/* ---------- Pickers ---------- */
+.snn-cf-picker {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+}
+.snn-cf-picker .snn-cf-picker-input { flex: 1 1 auto; min-width: 0; }
+.snn-cf-picker .button { flex: 0 0 auto; }
+
+.snn-cf-preview:not(:empty) {
+	margin-top: 6px;
+	font-size: 12px;
+	color: #6b7280;
+}
+.snn-cf-preview img {
+	max-width: 120px;
+	height: auto;
+	border-radius: 6px;
+	border: 1px solid #dcdcde;
+	display: block;
+}
+.snn-cf-preview-url {
+	display: inline-block;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: Menlo, Consolas, monospace;
+}
+
+/* ---------- Media picker modal ---------- */
+.snn-cf-modal { display: none; }
+.snn-cf-modal.is-open {
+	display: block;
+	position: fixed;
+	inset: 0;
+	z-index: 160000;
+}
+
+.snn-cf-modal-backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.65);
+}
+
+.snn-cf-modal-box {
+	position: absolute;
+	inset: 5vh 50% auto auto;
+	transform: translateX(50%);
+	width: min(960px, 92vw);
+	max-height: 90vh;
+	display: flex;
+	flex-direction: column;
+	background: #fff;
+	border-radius: 12px;
+	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+	overflow: hidden;
+}
+
+.snn-cf-modal-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 14px 18px;
+	border-bottom: 1px solid #e5e7eb;
+}
+.snn-cf-modal-head strong { font-size: 15px; }
+.snn-cf-modal-search {
+	flex: 1 1 auto;
+	max-width: 380px;
+	margin-left: auto;
+}
+
+.snn-cf-modal-body {
+	padding: 18px;
+	overflow-y: auto;
+}
+
+.snn-cf-modal-msg {
+	margin: 24px 0;
+	text-align: center;
+	color: #6b7280;
+}
+
+.snn-cf-modal-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+	gap: 14px;
+}
+
+.snn-cf-media-card {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 8px;
+	text-align: left;
+	background: #fff;
+	border: 1px solid #e5e7eb;
+	border-radius: 10px;
+	cursor: pointer;
+	font: inherit;
+}
+.snn-cf-media-card:hover {
+	border-color: #2271b1;
+	box-shadow: 0 0 0 1px #2271b1;
+}
+
+.snn-cf-media-thumb {
+	display: block;
+	aspect-ratio: 16 / 9;
+	border-radius: 6px;
+	background: #111827 center / cover no-repeat;
+}
+
+.snn-cf-media-name {
+	font-size: 12.5px;
+	font-weight: 600;
+	color: #1e1e1e;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.snn-cf-media-meta {
+	font-size: 11.5px;
+	color: #6b7280;
+}
+
+/* ---------- Quick Edit ---------- */
+.column-snn_cf_data { display: none !important; }
+
+.snn-cf-qe .snn-cf-qe-row {
+	display: block;
+	margin: 0 0 8px;
+}
+.snn-cf-qe .snn-cf-qe-row .title {
+	display: inline-block;
+	width: 8em;
+	vertical-align: top;
+}
+.snn-cf-qe .snn-cf-input { display: inline-block; width: 60%; }
+
+/* ---------- Settings page ---------- */
+.snn-cf-admin { max-width: 1180px; }
+
+.snn-cf-card {
+	background: #fff;
+	border: 1px solid #e5e7eb;
+	border-radius: 12px;
+	padding: 20px 24px;
+	margin: 20px 0;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.snn-cf-card > h2 {
+	margin: 0 0 16px;
+	padding-bottom: 12px;
+	font-size: 16px;
+	border-bottom: 1px solid #f3f4f6;
+}
+
+.snn-cf-card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	flex-wrap: wrap;
+	margin-bottom: 16px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid #f3f4f6;
+}
+.snn-cf-card-head h2 { margin: 0; font-size: 16px; }
+.snn-cf-card-actions { display: flex; gap: 8px; }
+
+.snn-cf-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-weight: 600;
+	font-size: 13.5px;
+}
+
+.snn-cf-note {
+	margin: 8px 0 0;
+	font-size: 12px;
+	color: #6b7280;
+	max-width: 70ch;
+}
+.snn-cf-note-inline {
+	font-weight: 400;
+	font-size: 11.5px;
+	color: #9ca3af;
+}
+
+.snn-cf-sub {
+	margin: 18px 0 8px;
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.snn-cf-settings-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 18px;
+	margin-top: 18px;
+}
+.snn-cf-settings-grid > div { flex: 1 1 210px; }
+.snn-cf-settings-grid label,
+.snn-cf-col > label {
+	display: block;
+	margin-bottom: 5px;
+	font-weight: 600;
+	font-size: 12.5px;
+	color: #374151;
+}
+.snn-cf-settings-grid input { width: 100%; }
+
+.snn-cf-checks {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 20px;
+	margin-top: 12px;
+}
+.snn-cf-checks label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	font-weight: 400;
+	margin: 0;
+}
+.snn-cf-checks-tight { margin-top: 0; gap: 6px 16px; }
+.snn-cf-return { gap: 8px !important; }
+
+/* ---------- Settings page: field rows ---------- */
+.snn-cf-field-editor {
+	border: 1px solid #e5e7eb;
+	border-radius: 10px;
+	margin-bottom: 14px;
+	overflow: hidden;
+}
+
+.snn-cf-field-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 9px 14px;
+	background: #f6f7f7;
+	border-bottom: 1px solid #e5e7eb;
+}
+.snn-cf-field-title { font-weight: 600; font-size: 13.5px; }
+
+.snn-cf-field-actions { display: flex; align-items: center; gap: 12px; }
+.snn-cf-field-actions .button-link {
+	text-decoration: none;
+	color: #50575e;
+	font-size: 13px;
+}
+.snn-cf-field-actions .button-link:hover { color: #2271b1; }
+.snn-cf-field-actions .snn-cf-delete { color: #b32d2e; }
+.snn-cf-field-actions .snn-cf-delete:hover { color: #8a2424; }
+
+.snn-cf-field-body {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 14px 18px;
+	padding: 16px 14px;
+}
+.snn-cf-col { flex-grow: 1; min-width: 0; }
+.snn-cf-col input[type="text"],
+.snn-cf-col input[type="number"],
+.snn-cf-col select,
+.snn-cf-col textarea {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.snn-cf-empty {
+	margin: 0;
+	color: #6b7280;
+	font-style: italic;
+}
