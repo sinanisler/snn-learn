@@ -53,6 +53,8 @@ function snn_media_defaults() {
         // OpenRouter speech-to-text → VTT
         'openrouter_api_key'   => '',
         'stt_model'            => 'openai/whisper-1',
+        // Text generation (course field writing) — a chat model, not Whisper.
+        'ai_model'             => 'anthropic/claude-sonnet-4.5',
         'stt_language'         => '',
         'vtt_auto'             => 1,
         'vtt_max_words'        => 12,
@@ -780,6 +782,225 @@ function snn_media_transcribe_to_vtt( $row ) {
         'cues'     => count( $cues ),
         'duration' => isset( $data['duration'] ) ? (float) $data['duration'] : null,
     ];
+}
+
+/**
+ * Finds the media row a stored field URL points at.
+ *
+ * Field meta holds a plain playback URL so the front end stays dumb, which
+ * means going the other way — URL back to library row — needs a lookup. R2 and
+ * local URLs are both matched, and the basename is the last resort so a URL
+ * that was typed by hand still resolves.
+ */
+function snn_media_find_by_url( $url ) {
+    global $wpdb;
+
+    $url = trim( (string) $url );
+    if ( '' === $url ) {
+        return null;
+    }
+
+    $table = snn_media_table();
+
+    $row = $wpdb->get_row( $wpdb->prepare( // phpcs:ignore WordPress.DB
+        "SELECT * FROM $table WHERE r2_url = %s LIMIT 1",
+        $url
+    ) );
+    if ( $row ) {
+        return $row;
+    }
+
+    $filename = rawurldecode( basename( wp_parse_url( $url, PHP_URL_PATH ) ?: '' ) );
+    if ( '' === $filename ) {
+        return null;
+    }
+
+    return $wpdb->get_row( $wpdb->prepare( // phpcs:ignore WordPress.DB
+        "SELECT * FROM $table WHERE filename = %s LIMIT 1",
+        $filename
+    ) );
+}
+
+/** The .vtt text for a media row, from disk when possible, else over HTTP. */
+function snn_media_vtt_text( $row ) {
+    if ( ! $row ) {
+        return new WP_Error( 'snn_media_no_row', 'That video is not in the media library.' );
+    }
+
+    $path = snn_media_dir() . $row->vtt_file;
+    if ( $row->vtt_file && file_exists( $path ) ) {
+        $text = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+        if ( false !== $text ) {
+            return $text;
+        }
+    }
+
+    if ( $row->r2_vtt_url ) {
+        $response = wp_remote_get( $row->r2_vtt_url, [ 'timeout' => 30 ] );
+        if ( ! is_wp_error( $response ) && 200 === wp_remote_retrieve_response_code( $response ) ) {
+            return wp_remote_retrieve_body( $response );
+        }
+    }
+
+    return new WP_Error(
+        'snn_media_no_vtt',
+        'That video has no subtitles yet. Generate the .vtt in the Media Library first — the transcript is what these fields are written from.'
+    );
+}
+
+/**
+ * Condenses raw VTT into timestamped transcript lines.
+ *
+ * Whisper emits a cue every few seconds, which triples the token count for no
+ * benefit. Merging into fixed windows keeps timestamps accurate enough to place
+ * a chapter mark while cutting the transcript roughly in half.
+ *
+ * @param string $vtt     Raw WebVTT.
+ * @param int    $window  Seconds of speech to merge into one line.
+ */
+function snn_media_vtt_to_transcript( $vtt, $window = 15 ) {
+    $lines  = preg_split( '/\r\n|\r|\n/', (string) $vtt );
+    $blocks = [];
+    $start  = null;
+    $buffer = [];
+
+    $flush = function () use ( &$blocks, &$start, &$buffer ) {
+        if ( null !== $start && $buffer ) {
+            $blocks[] = snn_media_vtt_timestamp_short( $start ) . ' ' . implode( ' ', $buffer );
+        }
+        $start  = null;
+        $buffer = [];
+    };
+
+    $cue_start = null;
+
+    foreach ( $lines as $line ) {
+        $line = trim( $line );
+
+        if ( '' === $line || 'WEBVTT' === strtoupper( $line ) || is_numeric( $line ) ) {
+            continue;
+        }
+
+        // "00:00:12.500 --> 00:00:15.000" — the cue's start time.
+        if ( false !== strpos( $line, '-->' ) ) {
+            $parts     = explode( '-->', $line );
+            $cue_start = snn_media_vtt_seconds( trim( $parts[0] ) );
+
+            if ( null === $start ) {
+                $start = $cue_start;
+            } elseif ( $cue_start - $start >= $window ) {
+                $flush();
+                $start = $cue_start;
+            }
+            continue;
+        }
+
+        if ( null !== $cue_start ) {
+            $buffer[] = preg_replace( '/<[^>]*>/', '', $line );
+        }
+    }
+
+    $flush();
+
+    return implode( "\n", $blocks );
+}
+
+/** "00:01:02.500" → 62.5 seconds. */
+function snn_media_vtt_seconds( $stamp ) {
+    if ( ! preg_match( '/(\d+):(\d{2}):(\d{2})[.,](\d{1,3})|(\d+):(\d{2})[.,](\d{1,3})/', $stamp, $m ) ) {
+        return 0.0;
+    }
+
+    // Group 3 is only set by the h:mm:ss alternative, which is what separates
+    // "01:02.500" (a minute in) from "01:02:00.000" (an hour in).
+    if ( isset( $m[3] ) && '' !== $m[3] ) {
+        return (float) ( (int) $m[1] * 3600 + (int) $m[2] * 60 + (int) $m[3] ) + (int) str_pad( $m[4], 3, '0' ) / 1000;
+    }
+
+    return (float) ( (int) $m[5] * 60 + (int) $m[6] ) + (int) str_pad( $m[7], 3, '0' ) / 1000;
+}
+
+/** Seconds → "MM:SS", or "H:MM:SS" past the hour — the format chapters use. */
+function snn_media_vtt_timestamp_short( $seconds ) {
+    $seconds = (int) round( max( 0, (float) $seconds ) );
+    $hours   = (int) floor( $seconds / 3600 );
+    $minutes = (int) floor( ( $seconds % 3600 ) / 60 );
+    $secs    = $seconds % 60;
+
+    return $hours > 0
+        ? sprintf( '%d:%02d:%02d', $hours, $minutes, $secs )
+        : sprintf( '%02d:%02d', $minutes, $secs );
+}
+
+/**
+ * One OpenRouter chat completion, returning the decoded JSON the model produced.
+ *
+ * The caller supplies a JSON Schema; response_format pins the model to it so
+ * the result can be trusted to match the field's shape without reparsing prose.
+ *
+ * @return array|WP_Error
+ */
+function snn_media_openrouter_json( $system, $user, $schema ) {
+    $api_key = trim( (string) snn_media_get( 'openrouter_api_key' ) );
+    if ( '' === $api_key ) {
+        return new WP_Error( 'snn_media_no_key', 'No OpenRouter API key is configured. Add one in Media Settings.' );
+    }
+
+    $model = trim( (string) snn_media_get( 'ai_model' ) );
+    if ( '' === $model ) {
+        return new WP_Error( 'snn_media_no_model', 'No text generation model is configured. Set one in Media Settings.' );
+    }
+
+    $response = wp_remote_post( 'https://openrouter.ai/api/v1/chat/completions', [
+        'timeout' => 180,
+        'headers' => [
+            'Authorization' => 'Bearer ' . $api_key,
+            'Content-Type'  => 'application/json',
+            'HTTP-Referer'  => home_url(),
+            'X-Title'       => 'SNN Learn Course Fields',
+        ],
+        'body'    => wp_json_encode( [
+            'model'           => $model,
+            'temperature'     => 0.3,
+            'messages'        => [
+                [ 'role' => 'system', 'content' => $system ],
+                [ 'role' => 'user',   'content' => $user ],
+            ],
+            'response_format' => [
+                'type'        => 'json_schema',
+                'json_schema' => [
+                    'name'   => 'snn_field',
+                    'strict' => true,
+                    'schema' => $schema,
+                ],
+            ],
+        ] ),
+    ] );
+
+    if ( is_wp_error( $response ) ) {
+        return new WP_Error( 'snn_media_ai_http', 'Could not reach OpenRouter: ' . $response->get_error_message() );
+    }
+
+    $code = wp_remote_retrieve_response_code( $response );
+    $body = wp_remote_retrieve_body( $response );
+
+    if ( 200 !== $code ) {
+        return new WP_Error( 'snn_media_ai_http', 'OpenRouter returned HTTP ' . $code . ': ' . mb_substr( $body, 0, 300 ) );
+    }
+
+    $data    = json_decode( $body, true );
+    $content = $data['choices'][0]['message']['content'] ?? '';
+
+    if ( '' === $content ) {
+        return new WP_Error( 'snn_media_ai_empty', 'The model returned nothing. Try again, or pick a different model.' );
+    }
+
+    $parsed = json_decode( $content, true );
+    if ( JSON_ERROR_NONE !== json_last_error() ) {
+        return new WP_Error( 'snn_media_ai_json', 'The model did not return valid JSON. This usually means the model does not support structured output — try another one.' );
+    }
+
+    return $parsed;
 }
 
 // ============================================================
@@ -1784,7 +2005,7 @@ function snn_media_settings_page() {
 
         $text_fields = [
             'allowed_extensions', 'r2_account_id', 'r2_bucket', 'r2_public_url',
-            'r2_jurisdiction', 'stt_model', 'stt_language',
+            'r2_jurisdiction', 'stt_model', 'stt_language', 'ai_model',
             'mp3_bitrate', 'mp3_sample_rate',
         ];
         foreach ( $text_fields as $f ) {
@@ -2038,6 +2259,17 @@ function snn_media_settings_page() {
                         <input type="text" id="snn_stt_model" name="snn_stt_model"
                             value="<?= esc_attr( snn_media_get( 'stt_model' ) ) ?>" placeholder="openai/whisper-1">
                         <p class="snn-help">e.g. <code>openai/whisper-1</code>, <code>openai/whisper-large-v3</code>. Word-level timestamps give the best cue timing; models without them fall back to segments.</p>
+                    </div>
+                    <div class="snn-field">
+                        <label for="snn_ai_model">Text generation model</label>
+                        <input type="text" id="snn_ai_model" name="snn_ai_model"
+                            value="<?= esc_attr( snn_media_get( 'ai_model' ) ) ?>" placeholder="anthropic/claude-sonnet-4.5">
+                        <p class="snn-help">
+                            Writes chapters, objectives and FAQs from a lesson's <code>.vtt</code> on the
+                            <a href="<?= esc_url( admin_url( 'admin.php?page=snn-learn-course-fields' ) ) ?>">Course Fields</a> screen.
+                            This is a <strong>chat</strong> model, not Whisper &mdash; and it must support structured JSON output.
+                            Check the exact slug on <code>openrouter.ai/models</code>.
+                        </p>
                     </div>
                     <div class="snn-field">
                         <label for="snn_stt_language">Language hint</label>

@@ -9,28 +9,104 @@
 	margin: 4px 0;
 }
 
+/* ---------- Collapsed field card ----------
+   min-width keeps a 10%-wide field from collapsing into an unreadable
+   sliver, so the grid stays stable whether a card is open or shut. */
 .snn-cf-field {
 	flex-grow: 1;
 	min-width: 220px;
 	box-sizing: border-box;
+	border: 1px solid #e0e0e1;
+	border-radius: 8px;
+	background: #fff;
+	overflow: hidden;
 }
+.snn-cf-field.is-open { border-color: #c3c4c7; }
 
-.snn-cf-label {
+.snn-cf-head {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	margin-bottom: 6px;
-	font-weight: 600;
-	font-size: 13px;
+	width: 100%;
+	padding: 9px 12px;
+	background: #f6f7f7;
+	border: 0;
+	border-radius: 0;
+	text-align: left;
+	cursor: pointer;
+	font: inherit;
 	color: #1e1e1e;
 }
-.snn-cf-label code {
-	background: #f0f0f1;
-	color: #6b7280;
-	font-size: 11px;
-	padding: 1px 6px;
-	border-radius: 4px;
+.snn-cf-head:hover { background: #f0f0f1; }
+.snn-cf-head:focus-visible { outline: 2px solid #2271b1; outline-offset: -2px; }
+.snn-cf-field.is-open .snn-cf-head { background: #fff; border-bottom: 1px solid #f0f0f1; }
+
+.snn-cf-caret {
+	flex: 0 0 auto;
+	width: 0;
+	height: 0;
+	border-left: 5px solid #787c82;
+	border-top: 4px solid transparent;
+	border-bottom: 4px solid transparent;
+	transition: transform 0.12s ease;
 }
+.snn-cf-field.is-open .snn-cf-caret { transform: rotate(90deg); }
+
+.snn-cf-head-label {
+	flex: 0 1 auto;
+	font-weight: 600;
+	font-size: 13px;
+	white-space: nowrap;
+}
+
+.snn-cf-summary {
+	flex: 1 1 auto;
+	min-width: 0;
+	text-align: right;
+	font-size: 12px;
+	color: #50575e;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.snn-cf-summary.is-empty { color: #b0b5bb; font-style: italic; }
+
+.snn-cf-body { padding: 12px; }
+/* Explicit, in case an admin or block-editor rule resets [hidden]. */
+.snn-cf-body[hidden] { display: none !important; }
+
+.snn-cf-toolbar {
+	display: flex;
+	gap: 14px;
+	margin-bottom: 12px;
+}
+.snn-cf-toolbar .button-link {
+	font-size: 12px;
+	color: #2271b1;
+	text-decoration: none;
+}
+.snn-cf-toolbar .button-link:hover { text-decoration: underline; }
+
+.snn-cf-field-actions-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin-top: 10px;
+}
+
+/* ---------- Status line ---------- */
+.snn-cf-status {
+	margin: 8px 0 0;
+	font-size: 12px;
+	min-height: 0;
+}
+.snn-cf-status:empty { margin: 0; }
+.snn-cf-status.is-busy { color: #6b7280; }
+.snn-cf-status.is-ok { color: #007017; }
+.snn-cf-status.is-error { color: #b32d2e; }
+
+.snn-cf-generate[disabled] { opacity: 0.65; cursor: progress; }
 
 .snn-cf-help {
 	margin: 0 0 8px;
@@ -94,7 +170,17 @@
 }
 .snn-cf-remove:hover { color: #8a2424 !important; }
 
-.snn-cf-add { margin-top: 8px !important; }
+/* ---------- Settings page: AI block ---------- */
+.snn-cf-ai {
+	border-top: 1px solid #f0f0f1;
+	padding-top: 14px;
+}
+.snn-cf-ai-count {
+	gap: 6px !important;
+	color: #50575e;
+}
+.snn-cf-ai-prompt { margin-top: 10px; }
+.snn-cf-ai-prompt textarea { font-size: 12.5px; line-height: 1.5; }
 
 /* ---------- Pickers ---------- */
 .snn-cf-picker {

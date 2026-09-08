@@ -247,10 +247,12 @@
 					}
 				} else {
 					input.value = item.playback_url || '';
+					autofillSubtitle( item );
 				}
 
 				refreshPreview( input );
 				input.dispatchEvent( new Event( 'change', { bubbles: true } ) );
+				touchField( input );
 			} );
 			return;
 		}
@@ -272,6 +274,34 @@
 			return;
 		}
 
+		// ---- Collapse: one field ----
+		var head = event.target.closest( '.snn-cf-head' );
+		if ( head ) {
+			event.preventDefault();
+			var headField = head.closest( '.snn-cf-field' );
+			setOpen( headField, ! isOpen( headField ) );
+			return;
+		}
+
+		// ---- Collapse: whole group ----
+		var toggleAll = event.target.closest( '.snn-cf-toggle-all' );
+		if ( toggleAll ) {
+			event.preventDefault();
+			var open = '1' === toggleAll.dataset.open;
+			$$( '.snn-cf-field', toggleAll.closest( '.postbox, .snn-cf-metabox' ) || document ).forEach( function ( f ) {
+				setOpen( f, open );
+			} );
+			return;
+		}
+
+		// ---- Generate from transcript ----
+		var generateBtn = event.target.closest( '.snn-cf-generate' );
+		if ( generateBtn ) {
+			event.preventDefault();
+			generate( generateBtn );
+			return;
+		}
+
 		// ---- Repeater: add row ----
 		var add = event.target.closest( '.snn-cf-add' );
 		if ( add ) {
@@ -287,6 +317,7 @@
 			var rows = remove.closest( '.snn-cf-rows' );
 			remove.closest( '.snn-cf-row' ).remove();
 			reindexRows( rows );
+			touchField( rows );
 		}
 	} );
 
@@ -333,6 +364,224 @@
 				el.name = el.name.replace( /\[\d+\]\[([ab])\]$/, '[' + index + '][$1]' );
 			} );
 		} );
+	}
+
+	/**
+	 * Drops a picked video's subtitle track into the subtitles field.
+	 *
+	 * Only when that field is still empty. Appending a fourth track to an
+	 * existing en/tr/de set is worse than doing nothing, so an author who has
+	 * already curated the list keeps what they have.
+	 */
+	function autofillSubtitle( item ) {
+		var url = item.r2_vtt_url || item.vtt_url;
+		if ( ! url || ! CONFIG.subtitleField ) {
+			return;
+		}
+
+		var field = $( '.snn-cf-field[data-slug="' + CONFIG.subtitleField + '"]' );
+		if ( ! field ) {
+			return;
+		}
+
+		var filled = $$( '.snn-cf-row input[type="text"]', field ).some( function ( input ) {
+			return input.value.trim() !== '';
+		} );
+		if ( filled ) {
+			return;
+		}
+
+		var firstRow = $$( '.snn-cf-row', field )[ 0 ];
+		if ( ! firstRow ) {
+			return;
+		}
+
+		var boxes = firstRow.querySelectorAll( 'input[type="text"]' );
+		if ( boxes[ 0 ] ) {
+			boxes[ 0 ].value = url;
+		}
+		if ( boxes[ 1 ] ) {
+			boxes[ 1 ].value = CONFIG.subtitleLabel || 'en';
+		}
+
+		touchField( boxes[ 0 ] );
+		flashField( field, 'Subtitle track added from the picked video.' );
+	}
+
+	// ==========================================================
+	// Collapsing
+	// ==========================================================
+
+	function setOpen( field, open ) {
+		var head = $( '.snn-cf-head', field );
+		var body = $( '.snn-cf-body', field );
+		if ( ! head || ! body ) {
+			return;
+		}
+		head.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+		body.hidden = ! open;
+		field.classList.toggle( 'is-open', !! open );
+	}
+
+	function isOpen( field ) {
+		return 'true' === $( '.snn-cf-head', field ).getAttribute( 'aria-expanded' );
+	}
+
+	/** Recomputes the collapsed header summary after an edit. */
+	function refreshSummary( field ) {
+		var el = $( '.snn-cf-summary', field );
+		if ( ! el ) {
+			return;
+		}
+
+		var repeater = '1' === field.dataset.repeater;
+		var type = field.dataset.type;
+		var text = '';
+
+		if ( 'true_false' === type ) {
+			var box = $( 'input[type="checkbox"]', field );
+			text = box && box.checked ? 'Yes' : 'No';
+		} else if ( repeater ) {
+			var filled = $$( '.snn-cf-row', field ).filter( function ( row ) {
+				return $$( 'input:not([type=hidden]), textarea', row ).some( function ( input ) {
+					return input.value.trim() !== '';
+				} );
+			} ).length;
+			text = filled ? filled + ( 1 === filled ? ' row' : ' rows' ) : '';
+		} else {
+			var values = $$( 'input:not([type=hidden]), textarea', field ).map( function ( input ) {
+				return input.value.trim();
+			} ).filter( Boolean );
+
+			text = values.join( ' · ' );
+			if ( /^https?:\/\//i.test( text ) ) {
+				text = decodeURIComponent( text.split( '?' )[ 0 ].split( '/' ).pop() );
+			}
+			text = text.replace( /\s+/g, ' ' );
+			if ( text.length > 60 ) {
+				text = text.slice( 0, 60 ) + '…';
+			}
+		}
+
+		el.textContent = text || 'empty';
+		el.classList.toggle( 'is-empty', ! text );
+	}
+
+	/** Marks a field as edited: refresh its header summary. */
+	function touchField( el ) {
+		var field = el && el.closest ? el.closest( '.snn-cf-field' ) : null;
+		if ( field ) {
+			refreshSummary( field );
+		}
+	}
+
+	function flashField( field, message ) {
+		var status = $( '.snn-cf-status', field );
+		if ( ! status ) {
+			return;
+		}
+		status.textContent = message;
+		status.className = 'snn-cf-status is-ok';
+		setTimeout( function () {
+			if ( status.textContent === message ) {
+				status.textContent = '';
+				status.className = 'snn-cf-status';
+			}
+		}, 6000 );
+	}
+
+	// ==========================================================
+	// Generation from the lesson transcript
+	// ==========================================================
+
+	/** The video URL currently in the form, saved or not. */
+	function currentVideoUrl() {
+		var field = $( '.snn-cf-field[data-type="video"]' );
+		if ( ! field ) {
+			return '';
+		}
+		var input = $( '.snn-cf-picker-input', field );
+		return input ? input.value.trim() : '';
+	}
+
+	function generate( button ) {
+		var field = button.closest( '.snn-cf-field' );
+		var status = $( '.snn-cf-status', field );
+		var text = $( '.snn-cf-generate-text', button );
+		var original = text.textContent;
+
+		button.disabled = true;
+		text.textContent = 'Generating…';
+		status.className = 'snn-cf-status is-busy';
+		status.textContent = 'Reading the transcript… this can take up to a minute on a long lesson.';
+
+		fetch( CONFIG.generateUrl, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-WP-Nonce': CONFIG.nonce
+			},
+			body: JSON.stringify( {
+				post_id: CONFIG.postId,
+				field: button.dataset.slug,
+				video_url: currentVideoUrl()
+			} )
+		} ).then( function ( response ) {
+			return response.json();
+		} ).then( function ( data ) {
+			if ( ! data || ! data.success ) {
+				throw new Error( ( data && data.message ) || 'Generation failed.' );
+			}
+			fillRows( field, data.rows );
+			status.className = 'snn-cf-status is-ok';
+			status.textContent = 'Filled ' + data.rows.length +
+				( 1 === data.rows.length ? ' row' : ' rows' ) + '. Review before saving.';
+		} ).catch( function ( err ) {
+			status.className = 'snn-cf-status is-error';
+			status.textContent = err.message || 'Generation failed.';
+		} ).then( function () {
+			button.disabled = false;
+			text.textContent = original;
+		} );
+	}
+
+	/**
+	 * Replaces a field's rows with generated ones.
+	 *
+	 * The result goes into the form, never straight to post meta — the author
+	 * edits what came back and saves the post themselves.
+	 */
+	function fillRows( field, rows ) {
+		var container = $( '.snn-cf-rows', field );
+		var template = container.firstElementChild;
+		if ( ! template ) {
+			return;
+		}
+
+		var blank = template.cloneNode( true );
+		$$( 'input:not([type=hidden]), textarea', blank ).forEach( function ( el ) {
+			el.value = '';
+			el.removeAttribute( 'id' );
+		} );
+
+		container.innerHTML = '';
+
+		rows.forEach( function ( row ) {
+			var node = blank.cloneNode( true );
+			var boxes = $$( 'input:not([type=hidden]), textarea', node );
+			if ( boxes[ 0 ] ) {
+				boxes[ 0 ].value = row[ 0 ] || '';
+			}
+			if ( boxes[ 1 ] ) {
+				boxes[ 1 ].value = row[ 1 ] || '';
+			}
+			container.appendChild( node );
+		} );
+
+		reindexRows( container );
+		refreshSummary( field );
+		setOpen( field, true );
 	}
 
 	// ==========================================================
@@ -485,11 +734,28 @@
 		bindEditor( document );
 		bindQuickEdit();
 		bindSettings();
+
+		// PHP renders the summaries; recompute once so a value the server
+		// summarised differently (an unsaved draft, say) still lines up.
+		$$( '.snn-cf-field' ).forEach( refreshSummary );
 	} );
 
 	document.addEventListener( 'change', function ( event ) {
 		if ( event.target.classList && event.target.classList.contains( 'snn-cf-picker-input' ) ) {
 			refreshPreview( event.target );
 		}
+		touchField( event.target );
+	} );
+
+	// Debounced so a long textarea does not recompute a summary per keystroke.
+	var summaryTimer = null;
+	document.addEventListener( 'input', function ( event ) {
+		if ( ! event.target.closest || ! event.target.closest( '.snn-cf-field' ) ) {
+			return;
+		}
+		clearTimeout( summaryTimer );
+		summaryTimer = setTimeout( function () {
+			touchField( event.target );
+		}, 300 );
 	} );
 } )();

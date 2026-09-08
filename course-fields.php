@@ -95,16 +95,45 @@ function snn_cf_default_fields() {
             'return'     => 'url',
             'options'    => '',
             'help'       => '',
+            'ai_enabled' => 0,
+            'ai_prompt'  => '',
+            'ai_count'   => 0,
         ], $extra );
     };
 
     return [
-        $f( 'Course Fields', 'Chapters',          'chapters',          30, 'double_text',     [ 'repeater' => 1, 'help' => 'Timestamp and chapter title, e.g. 00:45 | Setting up' ] ),
-        $f( 'Course Fields', 'Subtitles',         'subtitles',         30, 'subtitles',       [ 'repeater' => 1, 'help' => 'Pick a .vtt from the media library, then name the track.' ] ),
-        $f( 'Course Fields', 'Video URL',         'video_url',         20, 'video',           [ 'quick_edit' => 1 ] ),
-        $f( 'Course Fields', 'Video Length',      'video_length',      20, 'text',            [ 'quick_edit' => 1 ] ),
-        $f( 'Course Fields', 'Course Objectives', 'course_objectives', 30, 'textarea',        [ 'quick_edit' => 1 ] ),
-        $f( 'Course Fields', 'FAQ',               'faq',               40, 'double_textarea', [ 'repeater' => 1, 'help' => 'Question and answer.' ] ),
+        $f( 'Course Fields', 'Chapters', 'chapters', 30, 'double_text', [
+            'repeater'   => 1,
+            'help'       => 'Timestamp and chapter title, e.g. 00:45 | Setting up',
+            'ai_enabled' => 1,
+            'ai_count'   => 8,
+            'ai_prompt'  => 'Divide this lesson into chapters. Use the transcript timestamps to find where each new topic actually begins. '
+                . 'The first chapter must start at 00:00. Column A is the start time as MM:SS, column B is a short descriptive title of 2 to 5 words. '
+                . 'Prefer fewer, meaningful chapters over many trivial ones.',
+        ] ),
+        $f( 'Course Fields', 'Subtitles', 'subtitles', 30, 'subtitles', [
+            'repeater' => 1,
+            'help'     => 'Filled in automatically when you pick a video that already has a .vtt.',
+        ] ),
+        $f( 'Course Fields', 'Video URL',    'video_url',    20, 'video', [ 'quick_edit' => 1 ] ),
+        $f( 'Course Fields', 'Video Length', 'video_length', 20, 'text',  [ 'quick_edit' => 1 ] ),
+        $f( 'Course Fields', 'Course Objectives', 'course_objectives', 30, 'textarea', [
+            'repeater'   => 1,
+            'help'       => 'What the learner can do after this lesson. One objective per row.',
+            'ai_enabled' => 1,
+            'ai_count'   => 6,
+            'ai_prompt'  => 'Write the learning objectives for this lesson: what a learner will be able to do once they have finished it. '
+                . 'Start each objective with a verb. Keep each to one sentence. Cover only what the transcript actually teaches.',
+        ] ),
+        $f( 'Course Fields', 'FAQ', 'faq', 40, 'double_textarea', [
+            'repeater'   => 1,
+            'help'       => 'Question and answer.',
+            'ai_enabled' => 1,
+            'ai_count'   => 5,
+            'ai_prompt'  => 'Write the questions a learner is most likely to ask after watching this lesson, with answers. '
+                . 'Column A is the question, column B is the answer in two or three sentences. '
+                . 'Answer only from what the transcript covers.',
+        ] ),
         $f( 'Course Fields', 'Free Preview',      'free_preview',      10, 'true_false' ),
         $f( 'Course Fields', 'Badge Name',        'badge_name',        10, 'text',            [ 'quick_edit' => 1 ] ),
         $f( 'Course Fields', 'Badge',             'badge',             10, 'media' ),
@@ -238,6 +267,11 @@ function snn_cf_sanitize_field( $raw ) {
         'return'     => ( ( $raw['return'] ?? 'url' ) === 'id' ) ? 'id' : 'url',
         'options'    => sanitize_textarea_field( $raw['options'] ?? '' ),
         'help'       => sanitize_text_field( $raw['help'] ?? '' ),
+        // Transcript-driven generation. The output shape is derived from
+        // `type` + `repeater`, so a prompt is all a new AI field needs.
+        'ai_enabled' => empty( $raw['ai_enabled'] ) ? 0 : 1,
+        'ai_prompt'  => sanitize_textarea_field( $raw['ai_prompt'] ?? '' ),
+        'ai_count'   => max( 0, min( 50, (int) ( $raw['ai_count'] ?? 0 ) ) ),
     ];
 }
 
@@ -442,6 +476,13 @@ function snn_cf_value_rows( $field, $stored ) {
     $cols = snn_cf_type_def( $field['type'] )['cols'];
 
     if ( $field['repeater'] ) {
+        // A field that used to be a plain text/textarea holds a bare string.
+        // Show it as the first row instead of dropping it, or turning the
+        // repeater on would silently discard the existing content on save.
+        if ( is_scalar( $stored ) && '' !== (string) $stored ) {
+            return [ [ (string) $stored, '' ] ];
+        }
+
         $rows = is_array( $stored ) ? $stored : [];
         $out  = [];
         foreach ( $rows as $row ) {
@@ -452,9 +493,19 @@ function snn_cf_value_rows( $field, $stored ) {
         return $out ?: [ [ '', '' ] ]; // Always draw one empty row to type into.
     }
 
+    // A repeater that was switched back off leaves a list behind — fall back to
+    // its first row rather than rendering the word "Array" into the input.
+    if ( is_array( $stored ) && isset( $stored[0] ) && is_array( $stored[0] ) ) {
+        $stored = $stored[0];
+    }
+
     if ( 2 === $cols ) {
         $pair = is_array( $stored ) ? $stored : [ '', '' ];
         return [ [ (string) ( $pair[0] ?? '' ), (string) ( $pair[1] ?? '' ) ] ];
+    }
+
+    if ( is_array( $stored ) ) {
+        $stored = $stored[0] ?? '';
     }
 
     return [ [ is_scalar( $stored ) ? (string) $stored : '', '' ] ];
@@ -490,6 +541,11 @@ function snn_cf_render_meta_box( $post, $box ) {
         $nonce_done = true;
     }
 
+    echo '<div class="snn-cf-toolbar">'
+        . '<button type="button" class="button-link snn-cf-toggle-all" data-open="1">Expand all</button>'
+        . '<button type="button" class="button-link snn-cf-toggle-all" data-open="0">Collapse all</button>'
+        . '</div>';
+
     echo '<div class="snn-cf-grid">';
     foreach ( $box['args']['fields'] as $field ) {
         snn_cf_render_field( $field, get_post_meta( $post->ID, $field['slug'], true ) );
@@ -497,23 +553,71 @@ function snn_cf_render_meta_box( $post, $box ) {
     echo '</div>';
 }
 
+/**
+ * A short description of what a field currently holds, shown on its collapsed
+ * header so the whole group can be read at a glance without opening anything.
+ */
+function snn_cf_value_summary( $field, $stored ) {
+    if ( $field['repeater'] ) {
+        $count = is_array( $stored ) ? count( $stored ) : ( is_scalar( $stored ) && '' !== (string) $stored ? 1 : 0 );
+        if ( ! $count ) {
+            return '';
+        }
+        return $count . ' ' . ( 1 === $count ? 'row' : 'rows' );
+    }
+
+    if ( 'true_false' === $field['type'] ) {
+        return $stored ? 'Yes' : 'No';
+    }
+
+    if ( is_array( $stored ) ) {
+        $stored = implode( ' · ', array_filter( array_map( 'strval', $stored ) ) );
+    }
+
+    $value = trim( (string) $stored );
+    if ( '' === $value ) {
+        return '';
+    }
+
+    // A URL is only recognisable by its last segment at this width.
+    if ( preg_match( '#^https?://#i', $value ) ) {
+        $value = rawurldecode( basename( wp_parse_url( $value, PHP_URL_PATH ) ?: $value ) );
+    }
+
+    $value = preg_replace( '/\s+/', ' ', $value );
+
+    return mb_strlen( $value ) > 60 ? mb_substr( $value, 0, 60 ) . '…' : $value;
+}
+
 function snn_cf_render_field( $field, $stored ) {
-    $def   = snn_cf_type_def( $field['type'] );
-    $rows  = snn_cf_value_rows( $field, $stored );
-    $name  = 'snn_cf[' . $field['slug'] . ']';
-    $attrs = 'data-type="' . esc_attr( $field['type'] ) . '" data-cols="' . (int) $def['cols'] . '" data-name="' . esc_attr( $name ) . '"';
+    $def     = snn_cf_type_def( $field['type'] );
+    $rows    = snn_cf_value_rows( $field, $stored );
+    $name    = 'snn_cf[' . $field['slug'] . ']';
+    $summary = snn_cf_value_summary( $field, $stored );
 
     printf(
-        '<div class="snn-cf-field" style="flex-basis:%s%%" %s>',
+        '<div class="snn-cf-field" style="flex-basis:%s%%" data-type="%s" data-cols="%d" data-slug="%s" data-repeater="%d">',
         esc_attr( $field['width'] ),
-        $attrs // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts above.
+        esc_attr( $field['type'] ),
+        (int) $def['cols'],
+        esc_attr( $field['slug'] ),
+        (int) $field['repeater']
     );
 
+    // Every field starts collapsed — the header carries enough to decide
+    // whether it is worth opening.
     printf(
-        '<label class="snn-cf-label">%s <code>%s</code></label>',
+        '<button type="button" class="snn-cf-head" aria-expanded="false">'
+        . '<span class="snn-cf-caret" aria-hidden="true"></span>'
+        . '<span class="snn-cf-head-label">%s</span>'
+        . '<span class="snn-cf-summary %s">%s</span>'
+        . '</button>',
         esc_html( $field['label'] ),
-        esc_html( $field['slug'] )
+        '' === $summary ? 'is-empty' : '',
+        esc_html( '' === $summary ? 'empty' : $summary )
     );
+
+    echo '<div class="snn-cf-body" hidden>';
 
     if ( '' !== $field['help'] ) {
         printf( '<p class="snn-cf-help">%s</p>', esc_html( $field['help'] ) );
@@ -529,11 +633,22 @@ function snn_cf_render_field( $field, $stored ) {
     }
     echo '</div>';
 
+    echo '<div class="snn-cf-field-actions-row">';
     if ( $field['repeater'] ) {
         echo '<button type="button" class="button snn-cf-add">+ Add Row</button>';
     }
-
+    if ( $field['ai_enabled'] ) {
+        printf(
+            '<button type="button" class="button button-secondary snn-cf-generate" data-slug="%s">'
+            . '<span class="snn-cf-generate-text">Generate from transcript</span></button>',
+            esc_attr( $field['slug'] )
+        );
+    }
     echo '</div>';
+
+    echo '<p class="snn-cf-status" role="status"></p>';
+
+    echo '</div></div>';
 }
 
 /** One row of inputs — a repeater row, or the single row of a plain field. */
@@ -801,11 +916,26 @@ function snn_cf_asset_version() {
     return '1.0.' . ( @filemtime( $path ) ?: 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 }
 
-/** Everything the field editor JS needs: the media REST endpoint and a nonce. */
-function snn_cf_js_config() {
+/** Everything the field editor JS needs to run on the current screen. */
+function snn_cf_js_config( $post_type = '', $post_id = 0 ) {
+    // Where a picked video's .vtt should land, and what to call the track.
+    $subtitle_field = '';
+    foreach ( snn_cf_fields_for( $post_type ) as $field ) {
+        if ( 'subtitles' === $field['type'] ) {
+            $subtitle_field = $field['slug'];
+            break;
+        }
+    }
+
+    $language = trim( (string) snn_media_get( 'stt_language' ) );
+
     return [
-        'restUrl' => esc_url_raw( rest_url( 'snn-learn/v1/media/' ) ),
-        'nonce'   => wp_create_nonce( 'wp_rest' ),
+        'restUrl'        => esc_url_raw( rest_url( 'snn-learn/v1/media/' ) ),
+        'generateUrl'    => esc_url_raw( rest_url( 'snn-learn/v1/fields/generate' ) ),
+        'nonce'          => wp_create_nonce( 'wp_rest' ),
+        'postId'         => (int) $post_id,
+        'subtitleField'  => $subtitle_field,
+        'subtitleLabel'  => '' !== $language ? $language : 'en',
     ];
 }
 
@@ -829,7 +959,11 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
 
     wp_enqueue_style( 'snn-course-fields', $base . 'assets/css/snn-course-fields.css', [], $ver );
     wp_enqueue_script( 'snn-course-fields', $base . 'assets/js/snn-course-fields.js', [], $ver, true );
-    wp_add_inline_script( 'snn-course-fields', 'window.SNN_CF = ' . wp_json_encode( snn_cf_js_config() ) . ';', 'before' );
+    $config = snn_cf_js_config(
+        $screen ? $screen->post_type : '',
+        $is_editor ? (int) get_the_ID() : 0
+    );
+    wp_add_inline_script( 'snn-course-fields', 'window.SNN_CF = ' . wp_json_encode( $config ) . ';', 'before' );
 
     // The WordPress media modal backs the "Media (WordPress)" field type, in
     // the editor and in Quick Edit alike.
@@ -837,6 +971,216 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
         wp_enqueue_media();
     }
 } );
+
+// ============================================================
+// 11. AI GENERATION FROM THE LESSON TRANSCRIPT
+// ============================================================
+
+/**
+ * The JSON Schema for one field's output, derived from its own definition.
+ *
+ * This is what keeps the feature generic: a field already declares its shape
+ * through `type` and `repeater`, so enabling AI on a brand new field needs a
+ * prompt and nothing else — no schema, no parser, no PHP.
+ */
+function snn_cf_ai_schema( $field ) {
+    $cols = snn_cf_type_def( $field['type'] )['cols'];
+
+    $properties = [ 'a' => [ 'type' => 'string', 'description' => 'The value.' ] ];
+    $required   = [ 'a' ];
+
+    if ( 2 === $cols ) {
+        $properties['a']['description'] = 'First column.';
+        $properties['b'] = [ 'type' => 'string', 'description' => 'Second column.' ];
+        $required[]      = 'b';
+    }
+
+    return [
+        'type'                 => 'object',
+        'additionalProperties' => false,
+        'required'             => [ 'rows' ],
+        'properties'           => [
+            'rows' => [
+                'type'  => 'array',
+                'items' => [
+                    'type'                 => 'object',
+                    'additionalProperties' => false,
+                    'required'             => $required,
+                    'properties'           => $properties,
+                ],
+            ],
+        ],
+    ];
+}
+
+/** Spells out the shape and the column meaning for the model. */
+function snn_cf_ai_system_prompt( $field ) {
+    $cols  = snn_cf_type_def( $field['type'] )['cols'];
+    $lines = [
+        'You are writing the "' . $field['label'] . '" field for one lesson in an online course.',
+        'You are given the lesson transcript, with a timestamp at the start of each line.',
+        'Base everything strictly on the transcript. Never invent material the lesson does not cover.',
+    ];
+
+    if ( 2 === $cols ) {
+        $lines[] = 'Return an array of rows. Each row has "a" (the first column) and "b" (the second column).';
+    } else {
+        $lines[] = 'Return an array of rows. Each row has a single value "a".';
+    }
+
+    if ( $field['repeater'] ) {
+        if ( $field['ai_count'] > 0 ) {
+            $lines[] = 'Aim for about ' . $field['ai_count'] . ' rows, but follow the material — a short lesson '
+                . 'deserves fewer, and a dense one may need a few more. Quality over hitting the number.';
+        }
+    } else {
+        $lines[] = 'Return exactly one row.';
+    }
+
+    $lines[] = 'Write in the same language the transcript is spoken in.';
+
+    return implode( ' ', $lines );
+}
+
+/**
+ * Locates the transcript for a post: its video field, that video's library row,
+ * and the .vtt sitting beside it.
+ *
+ * @param string $override A video URL from the unsaved editor form, which wins
+ *                         over stored meta so Generate works before saving.
+ * @return string|WP_Error
+ */
+function snn_cf_transcript_for( $post_id, $override = '' ) {
+    $url = trim( (string) $override );
+
+    if ( '' === $url ) {
+        foreach ( snn_cf_fields_for( get_post_type( $post_id ) ) as $field ) {
+            if ( 'video' === $field['type'] ) {
+                $url = (string) get_post_meta( $post_id, $field['slug'], true );
+                if ( '' !== $url ) {
+                    break;
+                }
+            }
+        }
+    }
+
+    if ( '' === $url ) {
+        return new WP_Error( 'snn_cf_no_video', 'Pick a video for this lesson first — the text is written from its subtitles.' );
+    }
+
+    $vtt = snn_media_vtt_text( snn_media_find_by_url( $url ) );
+    if ( is_wp_error( $vtt ) ) {
+        return $vtt;
+    }
+
+    $transcript = snn_media_vtt_to_transcript( $vtt );
+    if ( '' === trim( $transcript ) ) {
+        return new WP_Error( 'snn_cf_empty_vtt', 'That video\'s subtitle file is empty.' );
+    }
+
+    return $transcript;
+}
+
+/** Turns the model's rows into the [ [ a, b ], ... ] shape the editor draws. */
+function snn_cf_ai_normalize_rows( $field, $rows ) {
+    $cols = snn_cf_type_def( $field['type'] )['cols'];
+    $out  = [];
+
+    foreach ( (array) $rows as $row ) {
+        if ( ! is_array( $row ) ) {
+            continue;
+        }
+
+        $a = trim( (string) ( $row['a'] ?? '' ) );
+        $b = 2 === $cols ? trim( (string) ( $row['b'] ?? '' ) ) : '';
+
+        if ( '' === $a && '' === $b ) {
+            continue;
+        }
+
+        $out[] = [ $a, $b ];
+
+        if ( ! $field['repeater'] ) {
+            break; // A plain field takes the first row and ignores the rest.
+        }
+    }
+
+    return $out;
+}
+
+add_action( 'rest_api_init', function () {
+    register_rest_route( 'snn-learn/v1', '/fields/generate', [
+        'methods'             => 'POST',
+        'callback'            => 'snn_cf_rest_generate',
+        'permission_callback' => function ( WP_REST_Request $request ) {
+            return current_user_can( 'edit_post', (int) $request->get_param( 'post_id' ) );
+        },
+    ] );
+} );
+
+/**
+ * POST /fields/generate — writes one field from the lesson transcript.
+ *
+ * Returns rows for the editor to fill in. Nothing is written to post meta: the
+ * author reviews and edits what came back, then saves the post as normal.
+ */
+function snn_cf_rest_generate( WP_REST_Request $request ) {
+    $post_id = (int) $request->get_param( 'post_id' );
+    $slug    = sanitize_key( (string) $request->get_param( 'field' ) );
+    $post    = get_post( $post_id );
+
+    if ( ! $post ) {
+        return new WP_Error( 'snn_cf_no_post', 'That post does not exist.', [ 'status' => 404 ] );
+    }
+
+    $field = null;
+    foreach ( snn_cf_fields_for( $post->post_type ) as $candidate ) {
+        if ( $candidate['slug'] === $slug ) {
+            $field = $candidate;
+            break;
+        }
+    }
+
+    if ( ! $field ) {
+        return new WP_Error( 'snn_cf_no_field', 'No such field on this post type.', [ 'status' => 404 ] );
+    }
+    if ( ! $field['ai_enabled'] ) {
+        return new WP_Error( 'snn_cf_ai_off', 'Generation is not enabled for this field.', [ 'status' => 400 ] );
+    }
+    if ( '' === trim( $field['ai_prompt'] ) ) {
+        return new WP_Error( 'snn_cf_no_prompt', 'This field has no generation prompt yet. Add one on the Course Fields screen.', [ 'status' => 400 ] );
+    }
+
+    $transcript = snn_cf_transcript_for( $post_id, (string) $request->get_param( 'video_url' ) );
+    if ( is_wp_error( $transcript ) ) {
+        return new WP_Error( $transcript->get_error_code(), $transcript->get_error_message(), [ 'status' => 400 ] );
+    }
+
+    $user_prompt = $field['ai_prompt'] . "\n\n"
+        . 'Lesson title: ' . get_the_title( $post_id ) . "\n\n"
+        . "Transcript:\n" . $transcript;
+
+    $result = snn_media_openrouter_json(
+        snn_cf_ai_system_prompt( $field ),
+        $user_prompt,
+        snn_cf_ai_schema( $field )
+    );
+
+    if ( is_wp_error( $result ) ) {
+        return new WP_Error( $result->get_error_code(), $result->get_error_message(), [ 'status' => 502 ] );
+    }
+
+    $rows = snn_cf_ai_normalize_rows( $field, $result['rows'] ?? [] );
+    if ( ! $rows ) {
+        return new WP_Error( 'snn_cf_ai_empty', 'The model returned no usable rows. Try again or adjust the prompt.', [ 'status' => 502 ] );
+    }
+
+    return rest_ensure_response( [
+        'success' => true,
+        'rows'    => $rows,
+        'cols'    => snn_cf_type_def( $field['type'] )['cols'],
+    ] );
+}
 
 // ============================================================
 // 10. SETTINGS PAGE
@@ -1067,6 +1411,34 @@ function snn_cf_render_field_editor( $index, $field, $types, $targets ) {
             <div class="snn-cf-col snn-cf-options-col" style="flex-basis:100%">
                 <label>Select Options <span class="snn-cf-note-inline">one per line, <code>value : Label</code></span></label>
                 <textarea name="<?= esc_attr( $name ) ?>[options]" rows="3"><?= esc_textarea( $field['options'] ) ?></textarea>
+            </div>
+
+            <div class="snn-cf-col snn-cf-ai" style="flex-basis:100%">
+                <div class="snn-cf-checks snn-cf-checks-tight">
+                    <label>
+                        <input type="hidden" name="<?= esc_attr( $name ) ?>[ai_enabled]" value="0">
+                        <input type="checkbox" class="snn-cf-ai-toggle" name="<?= esc_attr( $name ) ?>[ai_enabled]" value="1"
+                            <?= checked( 1, (int) $field['ai_enabled'], false ) ?>>
+                        <strong>Generate from transcript</strong>
+                    </label>
+                    <label class="snn-cf-ai-count">
+                        Aim for
+                        <input type="number" name="<?= esc_attr( $name ) ?>[ai_count]" value="<?= esc_attr( $field['ai_count'] ) ?>"
+                            min="0" max="50" style="width:70px">
+                        rows
+                        <span class="snn-cf-note-inline">a target, not a rule &mdash; 0 to leave it open</span>
+                    </label>
+                </div>
+                <div class="snn-cf-ai-prompt">
+                    <label>Prompt</label>
+                    <textarea name="<?= esc_attr( $name ) ?>[ai_prompt]" rows="4"
+                        placeholder="Describe what to write. The transcript and the output shape are added automatically."><?= esc_textarea( $field['ai_prompt'] ) ?></textarea>
+                    <p class="snn-cf-note">
+                        The lesson's <code>.vtt</code>, the field's column layout and the row target are appended for you &mdash;
+                        write only the instruction. Needs a text generation model in
+                        <a href="<?= esc_url( admin_url( 'admin.php?page=snn-learn-media-settings' ) ) ?>">Media Settings</a>.
+                    </p>
+                </div>
             </div>
         </div>
     </div>
