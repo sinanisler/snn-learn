@@ -1367,8 +1367,6 @@
 			}
 			state.tag = parseInt( chip.dataset.filter, 10 ) || 0;
 			state.page = 1;
-			var tag = tagById( state.tag );
-			log( state.tag ? 'Filtered the library by tag "' + tag.name + '".' : 'Cleared the tag filter.', 'info' );
 			refreshLibrary( true );
 		} );
 	}
@@ -1383,13 +1381,6 @@
 			uploadTagIds[ id ] = ! uploadTagIds[ id ];
 			saveUploadTags();
 			renderTagPicker();
-
-			var names = selectedUploadTagIds().map( function ( tagId ) {
-				return tagById( tagId ).name;
-			} );
-			log( names.length
-				? 'New uploads will be tagged: ' + names.join( ', ' ) + '.'
-				: 'New uploads will not be tagged.', 'info' );
 		} );
 	}
 
@@ -1794,12 +1785,5 @@
 	// ==========================================================
 
 	loadUploadTags();
-
-	log( 'Media library ready. Chunk size ' + formatBytes( CFG.chunkSize ) +
-		', thumbnails ' + ( CFG.thumbAuto ? 'automatic' : 'manual' ) +
-		', MP3 ' + ( CFG.mp3Auto ? 'automatic' : 'manual' ) +
-		', subtitles ' + ( CFG.vttAuto ? 'automatic' : 'manual' ) +
-		', R2 ' + ( CFG.r2AutoSync ? 'automatic' : 'manual' ) + '.', 'info' );
-
 	refreshLibrary( true );
 } )();
