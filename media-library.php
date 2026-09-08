@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'SNN_MEDIA_DB_VERSION', '1.1' );
+define( 'SNN_MEDIA_DB_VERSION', '1.2' );
 
 // ============================================================
 // 1. SETTINGS
@@ -29,6 +29,11 @@ function snn_media_defaults() {
         'allowed_extensions'   => 'mp4,mov,m4v,webm,mkv,avi,wmv,flv,ts,mts,m2ts',
         'chunk_size_mb'        => 2,
         'max_file_mb'          => 5120,
+
+        // Poster frame grabbed in the browser
+        'thumb_auto'           => 1,
+        'thumb_seek'           => 1.0,
+        'thumb_width'          => 480,
 
         // Cloudflare R2
         'r2_account_id'        => '',
@@ -100,6 +105,8 @@ function snn_media_mime_for_ext( $ext ) {
         'm2ts' => 'video/mp2t',
         'mp3'  => 'audio/mpeg',
         'vtt'  => 'text/vtt',
+        'jpg'  => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
     ];
     return $map[ strtolower( $ext ) ] ?? 'application/octet-stream';
 }
@@ -170,6 +177,16 @@ function snn_media_table() {
     return $wpdb->prefix . 'snn_learn_media';
 }
 
+function snn_media_tags_table() {
+    global $wpdb;
+    return $wpdb->prefix . 'snn_learn_media_tags';
+}
+
+function snn_media_tag_map_table() {
+    global $wpdb;
+    return $wpdb->prefix . 'snn_learn_media_tag_map';
+}
+
 function snn_media_create_table() {
     global $wpdb;
     $table   = snn_media_table();
@@ -192,10 +209,13 @@ function snn_media_create_table() {
         mp3_status varchar(20) NOT NULL DEFAULT 'pending',
         vtt_file varchar(255) DEFAULT NULL,
         vtt_status varchar(20) NOT NULL DEFAULT 'pending',
+        thumb_file varchar(255) DEFAULT NULL,
+        thumb_status varchar(20) NOT NULL DEFAULT 'pending',
         r2_key varchar(512) DEFAULT NULL,
         r2_url text DEFAULT NULL,
         r2_mp3_url text DEFAULT NULL,
         r2_vtt_url text DEFAULT NULL,
+        r2_thumb_url text DEFAULT NULL,
         r2_status varchar(20) NOT NULL DEFAULT 'pending',
         r2_synced_at int unsigned DEFAULT NULL,
         local_deleted tinyint(1) NOT NULL DEFAULT 0,
@@ -208,8 +228,29 @@ function snn_media_create_table() {
         KEY idx_r2_status (r2_status)
     ) $charset;";
 
+    // Tags are their own vocabulary: a tag can be renamed or recoloured without
+    // touching a single media row, and lives on after the videos wearing it go.
+    $tags_sql = "CREATE TABLE " . snn_media_tags_table() . " (
+        id bigint unsigned NOT NULL AUTO_INCREMENT,
+        name varchar(120) NOT NULL,
+        slug varchar(140) NOT NULL,
+        color varchar(16) NOT NULL DEFAULT '#2563eb',
+        created_at int unsigned NOT NULL DEFAULT 0,
+        PRIMARY KEY  (id),
+        UNIQUE KEY uq_slug (slug)
+    ) $charset;";
+
+    $map_sql = "CREATE TABLE " . snn_media_tag_map_table() . " (
+        media_id bigint unsigned NOT NULL,
+        tag_id bigint unsigned NOT NULL,
+        PRIMARY KEY  (media_id,tag_id),
+        KEY idx_tag_id (tag_id)
+    ) $charset;";
+
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta( $sql );
+    dbDelta( $tags_sql );
+    dbDelta( $map_sql );
 }
 
 add_action( 'plugins_loaded', function () {
@@ -229,8 +270,111 @@ add_action( 'plugins_loaded', function () {
     }
 } );
 
+/**
+ * Tags attached to a set of media ids, keyed by media id.
+ *
+ * One query for a whole page of the library rather than one per row — the
+ * listing endpoint renders 25–200 items and N+1 here is felt immediately.
+ *
+ * @param int[] $ids
+ * @return array<int, array>
+ */
+function snn_media_tags_for( array $ids ) {
+    $ids = array_values( array_unique( array_map( 'intval', $ids ) ) );
+    if ( ! $ids ) {
+        return [];
+    }
+
+    global $wpdb;
+    $map  = snn_media_tag_map_table();
+    $tags = snn_media_tags_table();
+    $in   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+
+    $rows = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB
+        "SELECT m.media_id, t.id, t.name, t.slug, t.color
+           FROM $map m
+           INNER JOIN $tags t ON t.id = m.tag_id
+          WHERE m.media_id IN ($in)
+          ORDER BY t.name ASC",
+        $ids
+    ) );
+
+    $out = [];
+    foreach ( $rows as $row ) {
+        $out[ (int) $row->media_id ][] = [
+            'id'    => (int) $row->id,
+            'name'  => $row->name,
+            'slug'  => $row->slug,
+            'color' => $row->color,
+        ];
+    }
+    return $out;
+}
+
+/** Every tag, with how many videos wear it. */
+function snn_media_all_tags() {
+    global $wpdb;
+    $tags = snn_media_tags_table();
+    $map  = snn_media_tag_map_table();
+
+    $rows = $wpdb->get_results( // phpcs:ignore WordPress.DB
+        "SELECT t.id, t.name, t.slug, t.color, COUNT(m.media_id) AS uses
+           FROM $tags t
+           LEFT JOIN $map m ON m.tag_id = t.id
+          GROUP BY t.id, t.name, t.slug, t.color
+          ORDER BY t.name ASC"
+    );
+
+    return array_map( function ( $row ) {
+        return [
+            'id'    => (int) $row->id,
+            'name'  => $row->name,
+            'slug'  => $row->slug,
+            'color' => $row->color,
+            'uses'  => (int) $row->uses,
+        ];
+    }, $rows ?: [] );
+}
+
+/** Normalises a colour to `#rrggbb`, falling back to the default blue. */
+function snn_media_sanitize_color( $color ) {
+    $color = trim( (string) $color );
+    if ( preg_match( '/^#[0-9a-fA-F]{6}$/', $color ) ) {
+        return strtolower( $color );
+    }
+    if ( preg_match( '/^#([0-9a-fA-F]{3})$/', $color, $m ) ) {
+        $c = strtolower( $m[1] );
+        return '#' . $c[0] . $c[0] . $c[1] . $c[1] . $c[2] . $c[2];
+    }
+    return '#2563eb';
+}
+
+/** Replaces an item's tags with exactly the given ids. Returns the tag rows. */
+function snn_media_set_item_tags( $media_id, array $tag_ids ) {
+    global $wpdb;
+    $map      = snn_media_tag_map_table();
+    $media_id = (int) $media_id;
+    $tag_ids  = array_values( array_unique( array_filter( array_map( 'intval', $tag_ids ) ) ) );
+
+    $wpdb->delete( $map, [ 'media_id' => $media_id ] ); // phpcs:ignore WordPress.DB
+
+    foreach ( $tag_ids as $tag_id ) {
+        // Insert through the tags table so a stale id from the browser cannot
+        // create a mapping row pointing at nothing.
+        $exists = (int) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB
+            'SELECT id FROM ' . snn_media_tags_table() . ' WHERE id = %d', $tag_id
+        ) );
+        if ( $exists ) {
+            $wpdb->insert( $map, [ 'media_id' => $media_id, 'tag_id' => $exists ] ); // phpcs:ignore WordPress.DB
+        }
+    }
+
+    $tags = snn_media_tags_for( [ $media_id ] );
+    return $tags[ $media_id ] ?? [];
+}
+
 /** Shape one DB row into the JSON structure the admin UI consumes. */
-function snn_media_row_to_array( $row ) {
+function snn_media_row_to_array( $row, $tags = null ) {
     $base_url = snn_media_url();
     $dir      = snn_media_dir();
 
@@ -257,6 +401,10 @@ function snn_media_row_to_array( $row ) {
         'vtt_file'      => $row->vtt_file,
         'vtt_status'    => $row->vtt_status,
         'vtt_url'       => $row->vtt_file && file_exists( $dir . $row->vtt_file ) ? $base_url . rawurlencode( $row->vtt_file ) : '',
+        'thumb_file'    => $row->thumb_file,
+        'thumb_status'  => $row->thumb_status,
+        'thumb_url'     => $row->thumb_file && file_exists( $dir . $row->thumb_file ) ? $base_url . rawurlencode( $row->thumb_file ) : '',
+        'r2_thumb_url'  => $row->r2_thumb_url,
         'r2_status'     => $row->r2_status,
         'r2_url'        => $row->r2_url,
         'r2_mp3_url'    => $row->r2_mp3_url,
@@ -264,7 +412,12 @@ function snn_media_row_to_array( $row ) {
         'r2_synced_at'  => $row->r2_synced_at ? date_i18n( 'Y-m-d H:i', (int) $row->r2_synced_at ) : '',
         // The URL a lesson should point at: R2 when synced, local otherwise.
         'playback_url'  => $row->r2_url ? $row->r2_url : ( $local_exists ? $base_url . rawurlencode( $row->filename ) : '' ),
+        // The poster to show in the grid: R2 when synced, local otherwise.
+        'poster_url'    => $row->r2_thumb_url
+            ? $row->r2_thumb_url
+            : ( $row->thumb_file && file_exists( $dir . $row->thumb_file ) ? $base_url . rawurlencode( $row->thumb_file ) : '' ),
         'error_msg'     => $row->error_msg,
+        'tags'          => null === $tags ? ( snn_media_tags_for( [ (int) $row->id ] )[ (int) $row->id ] ?? [] ) : $tags,
     ];
 }
 
@@ -672,7 +825,7 @@ function snn_media_sync_to_r2( $row ) {
     ];
 
     // Siblings are best-effort: a failed .mp3 or .vtt must not fail the video.
-    foreach ( [ 'mp3_file' => 'r2_mp3_url', 'vtt_file' => 'r2_vtt_url' ] as $field => $url_field ) {
+    foreach ( [ 'mp3_file' => 'r2_mp3_url', 'vtt_file' => 'r2_vtt_url', 'thumb_file' => 'r2_thumb_url' ] as $field => $url_field ) {
         $name = $row->$field;
         if ( ! $name || ! file_exists( $dir . $name ) ) {
             continue;
@@ -694,9 +847,10 @@ function snn_media_sync_to_r2( $row ) {
     snn_media_update( $row->id, $update );
 
     return [
-        'r2_url'     => $update['r2_url'],
-        'r2_mp3_url' => $update['r2_mp3_url'] ?? $row->r2_mp3_url,
-        'r2_vtt_url' => $update['r2_vtt_url'] ?? $row->r2_vtt_url,
+        'r2_url'       => $update['r2_url'],
+        'r2_mp3_url'   => $update['r2_mp3_url'] ?? $row->r2_mp3_url,
+        'r2_vtt_url'   => $update['r2_vtt_url'] ?? $row->r2_vtt_url,
+        'r2_thumb_url' => $update['r2_thumb_url'] ?? $row->r2_thumb_url,
     ];
 }
 
@@ -717,6 +871,9 @@ function snn_media_purge_from_r2( $row ) {
     }
     if ( $row->vtt_file ) {
         $keys[] = $row->vtt_file;
+    }
+    if ( $row->thumb_file ) {
+        $keys[] = $row->thumb_file;
     }
     foreach ( array_unique( $keys ) as $key ) {
         snn_media_r2_delete( $config, $key );
@@ -874,6 +1031,29 @@ add_action( 'rest_api_init', function () {
         'callback' => 'snn_media_rest_delete',
     ] ) );
 
+    register_rest_route( 'snn-learn/v1', '/media/thumb', array_merge( $auth, [
+        'methods'  => 'POST',
+        'callback' => 'snn_media_rest_store_thumb',
+    ] ) );
+
+    register_rest_route( 'snn-learn/v1', '/media/tags', array_merge( $auth, [
+        'methods'  => 'GET',
+        'callback' => function () {
+            return rest_ensure_response( [ 'success' => true, 'tags' => snn_media_all_tags() ] );
+        },
+    ] ) );
+
+    // One route, two verbs — POST creates or edits a tag, DELETE removes it.
+    register_rest_route( 'snn-learn/v1', '/media/tag', [
+        array_merge( $auth, [ 'methods' => 'POST', 'callback' => 'snn_media_rest_save_tag' ] ),
+        array_merge( $auth, [ 'methods' => 'DELETE', 'callback' => 'snn_media_rest_delete_tag' ] ),
+    ] );
+
+    register_rest_route( 'snn-learn/v1', '/media/item-tags', array_merge( $auth, [
+        'methods'  => 'POST',
+        'callback' => 'snn_media_rest_item_tags',
+    ] ) );
+
     register_rest_route( 'snn-learn/v1', '/media/run-queue', array_merge( $auth, [
         'methods'  => 'POST',
         'callback' => function () {
@@ -883,40 +1063,60 @@ add_action( 'rest_api_init', function () {
     ] ) );
 } );
 
-/** GET /media/items — paginated library listing. */
+/** GET /media/items — paginated library listing, optionally filtered by tag. */
 function snn_media_rest_items( WP_REST_Request $request ) {
     global $wpdb;
     $table = snn_media_table();
+    $map   = snn_media_tag_map_table();
 
     $per_page = min( 200, max( 1, (int) $request->get_param( 'per_page' ) ?: 50 ) );
     $page     = max( 1, (int) $request->get_param( 'page' ) ?: 1 );
     $search   = trim( (string) $request->get_param( 'search' ) );
+    $tag_id   = (int) $request->get_param( 'tag' );
     $offset   = ( $page - 1 ) * $per_page;
 
-    if ( '' !== $search ) {
-        $like  = '%' . $wpdb->esc_like( $search ) . '%';
-        $total = (int) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB
-            "SELECT COUNT(*) FROM $table WHERE original_name LIKE %s OR filename LIKE %s", $like, $like
-        ) );
-        $rows = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB
-            "SELECT * FROM $table WHERE original_name LIKE %s OR filename LIKE %s
-             ORDER BY uploaded_at DESC, id DESC LIMIT %d OFFSET %d",
-            $like, $like, $per_page, $offset
-        ) );
-    } else {
-        $total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $table" ); // phpcs:ignore WordPress.DB
-        $rows  = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB
-            "SELECT * FROM $table ORDER BY uploaded_at DESC, id DESC LIMIT %d OFFSET %d",
-            $per_page, $offset
-        ) );
+    // Built as fragments so search and tag can be combined freely.
+    $from  = "FROM $table t";
+    $where = [];
+    $args  = [];
+
+    if ( $tag_id > 0 ) {
+        $from   .= " INNER JOIN $map tm ON tm.media_id = t.id";
+        $where[] = 'tm.tag_id = %d';
+        $args[]  = $tag_id;
     }
+    if ( '' !== $search ) {
+        $like    = '%' . $wpdb->esc_like( $search ) . '%';
+        $where[] = '(t.original_name LIKE %s OR t.filename LIKE %s)';
+        $args[]  = $like;
+        $args[]  = $like;
+    }
+
+    $clause = $where ? ' WHERE ' . implode( ' AND ', $where ) : '';
+
+    $total = $args
+        ? (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) $from$clause", $args ) ) // phpcs:ignore WordPress.DB
+        : (int) $wpdb->get_var( "SELECT COUNT(*) $from$clause" ); // phpcs:ignore WordPress.DB
+
+    $rows = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB
+        "SELECT t.* $from$clause ORDER BY t.uploaded_at DESC, t.id DESC LIMIT %d OFFSET %d",
+        array_merge( $args, [ $per_page, $offset ] )
+    ) );
+
+    // One tag query for the whole page instead of one per row.
+    $tags_by_id = snn_media_tags_for( wp_list_pluck( $rows ?: [], 'id' ) );
+
+    $items = array_map( function ( $row ) use ( $tags_by_id ) {
+        return snn_media_row_to_array( $row, $tags_by_id[ (int) $row->id ] ?? [] );
+    }, $rows ?: [] );
 
     return rest_ensure_response( [
         'success'  => true,
         'total'    => $total,
         'page'     => $page,
         'per_page' => $per_page,
-        'items'    => array_map( 'snn_media_row_to_array', $rows ),
+        'items'    => $items,
+        'tags'     => snn_media_all_tags(),
     ] );
 }
 
@@ -943,6 +1143,7 @@ function snn_media_rest_chunk( WP_REST_Request $request ) {
     $chunk_index   = (int) ( $params['chunk_index'] ?? 0 );
     $total_chunks  = max( 1, (int) ( $params['total_chunks'] ?? 1 ) );
     $file_id       = preg_replace( '/[^a-zA-Z0-9_-]/', '', (string) ( $params['file_id'] ?? '' ) );
+    $tag_ids       = array_filter( array_map( 'intval', explode( ',', (string) ( $params['tag_ids'] ?? '' ) ) ) );
     $original_name = sanitize_file_name( (string) ( $params['original_name'] ?? 'video' ) );
 
     if ( '' === $file_id ) {
@@ -1017,6 +1218,7 @@ function snn_media_rest_chunk( WP_REST_Request $request ) {
         'filesize'      => filesize( $final ),
         'uploaded_by'   => get_current_user_id(),
         'uploaded_at'   => time(),
+        'thumb_status'  => snn_media_get( 'thumb_auto' ) ? 'queued' : 'pending',
         'mp3_status'    => snn_media_get( 'mp3_auto' ) ? 'queued' : 'pending',
         'vtt_status'    => snn_media_get( 'vtt_auto' ) ? 'queued' : 'pending',
         'r2_status'     => snn_media_get( 'r2_auto_sync' ) ? 'queued' : 'pending',
@@ -1025,6 +1227,11 @@ function snn_media_rest_chunk( WP_REST_Request $request ) {
     if ( ! $inserted ) {
         @unlink( $final );
         return new WP_Error( 'snn_media_db', 'The file uploaded but could not be recorded in the library.', [ 'status' => 500 ] );
+    }
+
+    // Tags chosen in the uploader apply to everything dropped in that session.
+    if ( $tag_ids ) {
+        snn_media_set_item_tags( $wpdb->insert_id, $tag_ids );
     }
 
     $row = snn_media_find( $wpdb->insert_id );
@@ -1159,6 +1366,160 @@ function snn_media_rest_r2_sync( WP_REST_Request $request ) {
     ] );
 }
 
+/** POST /media/thumb — stores the poster frame the browser grabbed. */
+function snn_media_rest_store_thumb( WP_REST_Request $request ) {
+    $params = $request->get_body_params();
+    $id     = (int) ( $params['id'] ?? 0 );
+    $row    = snn_media_find( $id );
+
+    if ( ! $row ) {
+        return new WP_Error( 'snn_media_not_found', 'That media item no longer exists.', [ 'status' => 404 ] );
+    }
+
+    // A browser that cannot decode this container reports the failure instead
+    // of leaving the row stuck on "queued" forever.
+    $status = (string) ( $params['status'] ?? '' );
+    if ( 'error' === $status ) {
+        snn_media_update( $row->id, [ 'thumb_status' => 'error' ] );
+        return rest_ensure_response( [ 'success' => true, 'item' => snn_media_row_to_array( snn_media_find( $row->id ) ) ] );
+    }
+
+    $files = $request->get_file_params();
+    if ( empty( $files['thumb'] ) || UPLOAD_ERR_OK !== $files['thumb']['error'] ) {
+        return new WP_Error( 'snn_media_no_thumb', 'No thumbnail data was received.', [ 'status' => 400 ] );
+    }
+
+    $info = @getimagesize( $files['thumb']['tmp_name'] );
+    if ( ! $info || IMAGETYPE_JPEG !== $info[2] ) {
+        return new WP_Error( 'snn_media_bad_thumb', 'The thumbnail was not a readable JPEG.', [ 'status' => 400 ] );
+    }
+
+    $dir        = snn_media_dir();
+    $thumb_file = pathinfo( $row->filename, PATHINFO_FILENAME ) . '-thumb.jpg';
+    $thumb_path = $dir . $thumb_file;
+
+    if ( ! @move_uploaded_file( $files['thumb']['tmp_name'], $thumb_path ) ) {
+        return new WP_Error( 'snn_media_thumb_write', 'Could not save the thumbnail into the media folder.', [ 'status' => 500 ] );
+    }
+    @chmod( $thumb_path, 0644 );
+
+    $update = [ 'thumb_file' => $thumb_file, 'thumb_status' => 'done' ];
+
+    // Once the video is in the bucket its thumbnail belongs there too — both
+    // when this is a re-made frame replacing an old one, and when the cron
+    // swept the video to R2 before any browser had a chance to grab a frame.
+    if ( 'synced' === $row->r2_status || $row->r2_thumb_url ) {
+        $config = snn_media_r2_config();
+        if ( $config ) {
+            $res = snn_media_r2_put( $config, $thumb_file, $thumb_path, 'image/jpeg' );
+            if ( $res['ok'] ) {
+                $update['r2_thumb_url'] = $config['public_url'] . '/' . snn_media_encode_key( $thumb_file );
+            }
+        }
+    }
+
+    snn_media_update( $row->id, $update );
+
+    return rest_ensure_response( [
+        'success' => true,
+        'item'    => snn_media_row_to_array( snn_media_find( $row->id ) ),
+    ] );
+}
+
+/** POST /media/tag — creates a tag, or renames/recolours an existing one. */
+function snn_media_rest_save_tag( WP_REST_Request $request ) {
+    global $wpdb;
+    $params = $request->get_body_params();
+    $id     = (int) ( $params['id'] ?? 0 );
+    $name   = sanitize_text_field( (string) ( $params['name'] ?? '' ) );
+    $color  = snn_media_sanitize_color( $params['color'] ?? '' );
+    $table  = snn_media_tags_table();
+
+    $name = trim( preg_replace( '/\s+/', ' ', $name ) );
+    if ( '' === $name ) {
+        return new WP_Error( 'snn_media_tag_name', 'A tag needs a name.', [ 'status' => 400 ] );
+    }
+    if ( mb_strlen( $name ) > 120 ) {
+        $name = mb_substr( $name, 0, 120 );
+    }
+
+    $slug = sanitize_title( $name );
+    if ( '' === $slug ) {
+        // Names made entirely of characters sanitize_title strips (emoji, some
+        // scripts' punctuation) still need a stable unique key.
+        $slug = 'tag-' . substr( md5( $name ), 0, 10 );
+    }
+
+    $clash = (int) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB
+        "SELECT id FROM $table WHERE slug = %s AND id <> %d", $slug, $id
+    ) );
+    if ( $clash ) {
+        return new WP_Error( 'snn_media_tag_exists', 'A tag named "' . $name . '" already exists.', [ 'status' => 400 ] );
+    }
+
+    if ( $id > 0 ) {
+        $updated = $wpdb->update( $table, [ 'name' => $name, 'slug' => $slug, 'color' => $color ], [ 'id' => $id ] ); // phpcs:ignore WordPress.DB
+        if ( false === $updated ) {
+            return new WP_Error( 'snn_media_tag_save', 'Could not update that tag.', [ 'status' => 500 ] );
+        }
+    } else {
+        $inserted = $wpdb->insert( $table, [ // phpcs:ignore WordPress.DB
+            'name'       => $name,
+            'slug'       => $slug,
+            'color'      => $color,
+            'created_at' => time(),
+        ] );
+        if ( ! $inserted ) {
+            return new WP_Error( 'snn_media_tag_save', 'Could not create that tag.', [ 'status' => 500 ] );
+        }
+        $id = (int) $wpdb->insert_id;
+    }
+
+    return rest_ensure_response( [
+        'success' => true,
+        'id'      => $id,
+        'name'    => $name,
+        'tags'    => snn_media_all_tags(),
+    ] );
+}
+
+/** DELETE /media/tag — drops a tag and unhooks it from every video. */
+function snn_media_rest_delete_tag( WP_REST_Request $request ) {
+    global $wpdb;
+    $id = (int) ( $request->get_param( 'id' ) ?: 0 );
+
+    $tag = $wpdb->get_row( $wpdb->prepare( // phpcs:ignore WordPress.DB
+        'SELECT * FROM ' . snn_media_tags_table() . ' WHERE id = %d', $id
+    ) );
+    if ( ! $tag ) {
+        return new WP_Error( 'snn_media_tag_missing', 'That tag no longer exists.', [ 'status' => 404 ] );
+    }
+
+    $wpdb->delete( snn_media_tag_map_table(), [ 'tag_id' => $id ] ); // phpcs:ignore WordPress.DB
+    $wpdb->delete( snn_media_tags_table(), [ 'id' => $id ] ); // phpcs:ignore WordPress.DB
+
+    return rest_ensure_response( [ 'success' => true, 'id' => $id, 'name' => $tag->name, 'tags' => snn_media_all_tags() ] );
+}
+
+/** POST /media/item-tags — replaces one item's tags with the given ids. */
+function snn_media_rest_item_tags( WP_REST_Request $request ) {
+    $params = $request->get_body_params();
+    $id     = (int) ( $params['id'] ?? 0 );
+    $row    = snn_media_find( $id );
+
+    if ( ! $row ) {
+        return new WP_Error( 'snn_media_not_found', 'That media item no longer exists.', [ 'status' => 404 ] );
+    }
+
+    $ids  = array_filter( array_map( 'intval', explode( ',', (string) ( $params['tag_ids'] ?? '' ) ) ) );
+    $tags = snn_media_set_item_tags( $row->id, $ids );
+
+    return rest_ensure_response( [
+        'success' => true,
+        'item'    => snn_media_row_to_array( snn_media_find( $row->id ), $tags ),
+    ] );
+}
+
 /** DELETE /media/item — removes the video, its derivatives, and its R2 copies. */
 function snn_media_rest_delete( WP_REST_Request $request ) {
     $id = (int) ( $request->get_param( 'id' ) ?: 0 );
@@ -1172,7 +1533,7 @@ function snn_media_rest_delete( WP_REST_Request $request ) {
     }
 
     $dir = snn_media_dir();
-    foreach ( array_filter( [ $row->filename, $row->mp3_file, $row->vtt_file ] ) as $name ) {
+    foreach ( array_filter( [ $row->filename, $row->mp3_file, $row->vtt_file, $row->thumb_file ] ) as $name ) {
         $path = $dir . basename( $name );
         if ( file_exists( $path ) ) {
             @unlink( $path );
@@ -1180,9 +1541,10 @@ function snn_media_rest_delete( WP_REST_Request $request ) {
     }
 
     global $wpdb;
+    $wpdb->delete( snn_media_tag_map_table(), [ 'media_id' => $row->id ] ); // phpcs:ignore WordPress.DB
     $wpdb->delete( snn_media_table(), [ 'id' => $row->id ] ); // phpcs:ignore WordPress.DB
 
-    return rest_ensure_response( [ 'success' => true, 'id' => $row->id ] );
+    return rest_ensure_response( [ 'success' => true, 'id' => $row->id, 'name' => $row->original_name ] );
 }
 
 // ============================================================
@@ -1229,6 +1591,9 @@ function snn_media_js_config() {
         'chunkSize'      => max( 1, (int) snn_media_get( 'chunk_size_mb' ) ) * 1024 * 1024,
         'maxFileMb'      => (int) snn_media_get( 'max_file_mb' ),
         'allowedExts'    => snn_media_allowed_extensions(),
+        'thumbAuto'      => (bool) snn_media_get( 'thumb_auto' ),
+        'thumbSeek'      => (float) snn_media_get( 'thumb_seek' ),
+        'thumbWidth'     => (int) snn_media_get( 'thumb_width' ),
         'mp3Auto'        => (bool) snn_media_get( 'mp3_auto' ),
         'mp3Bitrate'     => (string) snn_media_get( 'mp3_bitrate' ),
         'mp3SampleRate'  => (string) snn_media_get( 'mp3_sample_rate' ),
@@ -1288,19 +1653,34 @@ function snn_media_library_page() {
             </div>
         <?php endif; ?>
 
-        <!-- ---------- Drop zone ---------- -->
-        <div id="snn-dropzone" class="snn-dropzone">
-            <div class="snn-dropzone-inner">
-                <div class="snn-dropzone-icon">&#8681;</div>
-                <p class="snn-dropzone-title">Drag &amp; drop videos here</p>
-                <p class="snn-dropzone-sub">
-                    or <button type="button" id="snn-browse" class="snn-linkbtn">browse your computer</button>.
-                    Files upload one after another, in <?= esc_html( (int) snn_media_get( 'chunk_size_mb' ) ) ?>&nbsp;MB chunks.
-                </p>
-                <p class="snn-dropzone-exts">Allowed: <?= esc_html( implode( ', ', $allowed ) ) ?></p>
+        <!-- ---------- Upload panel (collapsed until it is wanted) ---------- -->
+        <details id="snn-upload-panel" class="snn-card snn-upload-card">
+            <summary>
+                <span class="snn-upload-title">Upload videos</span>
+                <span class="snn-muted snn-upload-hint">drag &amp; drop or browse &mdash; click to open</span>
+            </summary>
+
+            <div class="snn-upload-body">
+                <div class="snn-upload-tags">
+                    <span class="snn-upload-tags-label">Tag everything uploaded now:</span>
+                    <div id="snn-upload-tagpicker" class="snn-tagpicker"></div>
+                    <button type="button" id="snn-manage-tags" class="snn-linkbtn">Manage tags</button>
+                </div>
+
+                <div id="snn-dropzone" class="snn-dropzone">
+                    <div class="snn-dropzone-inner">
+                        <div class="snn-dropzone-icon">&#8681;</div>
+                        <p class="snn-dropzone-title">Drag &amp; drop videos here</p>
+                        <p class="snn-dropzone-sub">
+                            or <button type="button" id="snn-browse" class="snn-linkbtn">browse your computer</button>.
+                            Files upload one after another, in <?= esc_html( (int) snn_media_get( 'chunk_size_mb' ) ) ?>&nbsp;MB chunks.
+                        </p>
+                        <p class="snn-dropzone-exts">Allowed: <?= esc_html( implode( ', ', $allowed ) ) ?></p>
+                    </div>
+                    <input type="file" id="snn-file-input" multiple accept="<?= esc_attr( '.' . implode( ',.', $allowed ) ) ?>" hidden>
+                </div>
             </div>
-            <input type="file" id="snn-file-input" multiple accept="<?= esc_attr( '.' . implode( ',.', $allowed ) ) ?>" hidden>
-        </div>
+        </details>
 
         <!-- ---------- Active queue ---------- -->
         <div id="snn-queue-wrap" class="snn-card" hidden>
@@ -1311,26 +1691,51 @@ function snn_media_library_page() {
             <div id="snn-queue" class="snn-queue"></div>
         </div>
 
-        <!-- ---------- Pipeline log ---------- -->
-        <details class="snn-card snn-log-card">
-            <summary>Processing log</summary>
-            <div id="snn-log" class="snn-log"></div>
-        </details>
-
         <!-- ---------- Library ---------- -->
         <div class="snn-card">
             <div class="snn-card-head">
                 <h2>Library <span id="snn-total" class="snn-count"></span></h2>
                 <div class="snn-card-actions">
                     <input type="search" id="snn-search" class="snn-input" placeholder="Search filename&hellip;">
+                    <button type="button" id="snn-expand-all" class="snn-btn snn-btn-ghost">Expand all</button>
                     <button type="button" id="snn-refresh" class="snn-btn snn-btn-ghost">Refresh</button>
                     <button type="button" id="snn-process-all" class="snn-btn">Process pending</button>
                 </div>
             </div>
+            <div id="snn-tagfilter" class="snn-tagfilter"></div>
             <div id="snn-items" class="snn-items">
                 <p class="snn-muted snn-empty">Loading&hellip;</p>
             </div>
             <div id="snn-pagination" class="snn-pagination"></div>
+        </div>
+
+        <!-- ---------- Logs ---------- -->
+        <details class="snn-card snn-log-card">
+            <summary>
+                <span>Logs</span>
+                <span class="snn-muted snn-log-hint">the last 100 entries, kept across reloads</span>
+            </summary>
+            <div class="snn-log-tools">
+                <button type="button" id="snn-log-clear" class="snn-btn snn-btn-ghost snn-btn-sm">Clear logs</button>
+            </div>
+            <div id="snn-log" class="snn-log"></div>
+        </details>
+    </div>
+
+    <!-- ---------- Tag manager ---------- -->
+    <div id="snn-tag-modal" class="snn-modal snn-media" hidden>
+        <div class="snn-modal-backdrop" data-close></div>
+        <div class="snn-modal-body snn-modal-narrow">
+            <button type="button" class="snn-modal-close" data-close aria-label="Close">&times;</button>
+            <h3>Tags</h3>
+            <p class="snn-help">Rename a tag or change its colour and every video wearing it follows. Deleting one removes it from those videos; the videos themselves stay.</p>
+            <div id="snn-tag-list" class="snn-tag-list"></div>
+            <form id="snn-tag-new" class="snn-tag-new">
+                <input type="text" id="snn-tag-name" class="snn-input" placeholder="New tag name" maxlength="120" required>
+                <input type="color" id="snn-tag-color" value="#2563eb" aria-label="Tag colour">
+                <button type="submit" class="snn-btn snn-btn-primary">Add tag</button>
+            </form>
+            <p id="snn-tag-error" class="snn-tag-error" hidden></p>
         </div>
     </div>
 
@@ -1388,11 +1793,14 @@ function snn_media_settings_page() {
             }
         }
 
-        $number_fields = [ 'chunk_size_mb', 'max_file_mb', 'vtt_max_words', 'vtt_max_seconds' ];
+        $number_fields = [ 'chunk_size_mb', 'max_file_mb', 'vtt_max_words', 'vtt_max_seconds', 'thumb_width' ];
         foreach ( $number_fields as $f ) {
             if ( isset( $_POST[ 'snn_' . $f ] ) ) {
                 snn_media_set( $f, max( 0, (int) $_POST[ 'snn_' . $f ] ) );
             }
+        }
+        if ( isset( $_POST['snn_thumb_seek'] ) ) {
+            snn_media_set( 'thumb_seek', max( 0, (float) $_POST['snn_thumb_seek'] ) );
         }
         if ( isset( $_POST['snn_vtt_pause_gap'] ) ) {
             snn_media_set( 'vtt_pause_gap', max( 0, (float) $_POST['snn_vtt_pause_gap'] ) );
@@ -1407,7 +1815,7 @@ function snn_media_settings_page() {
             }
         }
 
-        foreach ( [ 'r2_auto_sync', 'r2_delete_local', 'mp3_auto', 'vtt_auto', 'cron_enabled' ] as $f ) {
+        foreach ( [ 'r2_auto_sync', 'r2_delete_local', 'thumb_auto', 'mp3_auto', 'vtt_auto', 'cron_enabled' ] as $f ) {
             snn_media_set( $f, isset( $_POST[ 'snn_' . $f ] ) ? 1 : 0 );
         }
 
@@ -1477,6 +1885,27 @@ function snn_media_settings_page() {
                         <p class="snn-help">Applies to the reassembled file. 0 disables the limit. R2 accepts up to 5&nbsp;GB per single upload.</p>
                     </div>
                 </div>
+                <label class="snn-toggle">
+                    <input type="checkbox" name="snn_thumb_auto" value="1" <?php checked( snn_media_get( 'thumb_auto' ) ); ?>>
+                    <span><strong>Grab a thumbnail automatically</strong> &mdash; the browser seizes one frame from each
+                    uploaded video and stores it as a small JPEG, so the library is browsable without previewing.
+                    With this off, use the <em>Thumbnail</em> button on an item.</span>
+                </label>
+                <div class="snn-grid">
+                    <div class="snn-field">
+                        <label for="snn_thumb_seek">Grab the frame at (seconds)</label>
+                        <input type="number" step="0.5" min="0" max="600" id="snn_thumb_seek" name="snn_thumb_seek"
+                            value="<?= esc_attr( snn_media_get( 'thumb_seek' ) ) ?>">
+                        <p class="snn-help">A second or two in avoids the black frame most videos open on. Shorter videos fall back to their midpoint.</p>
+                    </div>
+                    <div class="snn-field">
+                        <label for="snn_thumb_width">Thumbnail width (px)</label>
+                        <input type="number" min="120" max="1920" id="snn_thumb_width" name="snn_thumb_width"
+                            value="<?= esc_attr( snn_media_get( 'thumb_width' ) ) ?>">
+                        <p class="snn-help">Height follows the video's aspect ratio. 480&nbsp;px stays sharp on a retina screen and weighs about 30&nbsp;KB.</p>
+                    </div>
+                </div>
+
                 <p class="snn-help snn-note">
                     Server limits in effect right now &mdash;
                     <code>upload_max_filesize: <?= esc_html( ini_get( 'upload_max_filesize' ) ) ?></code>,
