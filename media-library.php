@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'SNN_MEDIA_DB_VERSION', '1.0' );
+define( 'SNN_MEDIA_DB_VERSION', '1.1' );
 
 // ============================================================
 // 1. SETTINGS
@@ -44,11 +44,6 @@ function snn_media_defaults() {
         'mp3_auto'             => 1,
         'mp3_bitrate'          => '32k',
         'mp3_sample_rate'      => '22050',
-        'mp3_max_source_mb'    => 2048,
-        // Blank means "use the copies bundled with the plugin", which is the
-        // only arrangement that needs no CORS at all — see snn_media_ffmpeg_urls().
-        'ffmpeg_base_url'      => '',
-        'ffmpeg_core_url'      => '',
 
         // OpenRouter speech-to-text → VTT
         'openrouter_api_key'   => '',
@@ -220,6 +215,16 @@ function snn_media_create_table() {
 add_action( 'plugins_loaded', function () {
     if ( get_option( 'snn_learn_media_db_version' ) !== SNN_MEDIA_DB_VERSION ) {
         snn_media_create_table();
+
+        // ffmpeg.wasm is always loaded from the copies bundled with the plugin.
+        // Earlier versions stored CDN URLs here, and a stored value always wins
+        // over a default — so installs that saved those would have kept loading
+        // cross-origin (and failing to construct the worker) forever. Delete
+        // them rather than leaving dead rows that silently override the code.
+        foreach ( [ 'ffmpeg_base_url', 'ffmpeg_core_url', 'mp3_max_source_mb' ] as $retired ) {
+            delete_option( 'snn_learn_media_' . $retired );
+        }
+
         update_option( 'snn_learn_media_db_version', SNN_MEDIA_DB_VERSION );
     }
 } );
@@ -1185,35 +1190,22 @@ function snn_media_rest_delete( WP_REST_Request $request ) {
 // ============================================================
 
 /**
- * Resolves where the browser should fetch ffmpeg.wasm from.
+ * Locates the bundled ffmpeg.wasm files and reports any that are missing.
  *
- * The bundled copies are served from the plugin's own assets folder. That is
- * deliberate rather than a convenience: `ffmpeg.js` spawns its worker with
- * `new Worker(new URL('./814.ffmpeg.js', <script url>))`, and constructing a
- * Worker from another origin is blocked by the browser outright — no CORS
- * header can permit it. Serving both files from our own origin sidesteps the
- * whole problem, and lets the core load as plain URLs instead of blob copies.
+ * These are always served from the plugin's own assets folder, and that is not
+ * a preference: `ffmpeg.js` starts its worker with
+ * `new Worker(new URL('./814.ffmpeg.js', <its own url>))`, and browsers refuse
+ * to construct a Worker from another origin no matter what CORS headers that
+ * origin sends. Same-origin is the only arrangement that works, so there is
+ * deliberately no setting to point this elsewhere.
  *
  * @return array {
  *     @type string $base    Directory holding ffmpeg.js and its worker chunk.
  *     @type string $core    Directory holding ffmpeg-core.js and .wasm.
- *     @type bool   $bundled Whether the bundled copies are being used.
- *     @type array  $missing Bundled files that are absent from disk.
+ *     @type array  $missing Bundled files absent from disk.
  * }
  */
 function snn_media_ffmpeg_urls() {
-    $base = trim( (string) snn_media_get( 'ffmpeg_base_url' ) );
-    $core = trim( (string) snn_media_get( 'ffmpeg_core_url' ) );
-
-    if ( '' !== $base || '' !== $core ) {
-        return [
-            'base'    => rtrim( $base, '/' ),
-            'core'    => rtrim( $core, '/' ),
-            'bundled' => false,
-            'missing' => [],
-        ];
-    }
-
     $dir     = plugin_dir_path( __FILE__ ) . 'assets/ffmpeg/';
     $url     = rtrim( plugin_dir_url( __FILE__ ) . 'assets/ffmpeg', '/' );
     $missing = [];
@@ -1224,7 +1216,7 @@ function snn_media_ffmpeg_urls() {
         }
     }
 
-    return [ 'base' => $url, 'core' => $url, 'bundled' => true, 'missing' => $missing ];
+    return [ 'base' => $url, 'core' => $url, 'missing' => $missing ];
 }
 
 /** Everything the browser app needs to run, in one object. */
@@ -1240,14 +1232,12 @@ function snn_media_js_config() {
         'mp3Auto'        => (bool) snn_media_get( 'mp3_auto' ),
         'mp3Bitrate'     => (string) snn_media_get( 'mp3_bitrate' ),
         'mp3SampleRate'  => (string) snn_media_get( 'mp3_sample_rate' ),
-        'mp3MaxSourceMb' => (int) snn_media_get( 'mp3_max_source_mb' ),
         'vttAuto'        => (bool) snn_media_get( 'vtt_auto' ),
         'r2AutoSync'     => (bool) snn_media_get( 'r2_auto_sync' ),
         'r2Configured'   => snn_media_r2_configured(),
         'sttConfigured'  => trim( (string) snn_media_get( 'openrouter_api_key' ) ) !== '',
         'ffmpegBase'     => $ffmpeg['base'],
         'ffmpegCore'     => $ffmpeg['core'],
-        'ffmpegBundled'  => $ffmpeg['bundled'],
         'ffmpegMissing'  => $ffmpeg['missing'],
         'settingsUrl'    => admin_url( 'admin.php?page=snn-learn-media-settings' ),
     ];
@@ -1390,7 +1380,7 @@ function snn_media_settings_page() {
         $text_fields = [
             'allowed_extensions', 'r2_account_id', 'r2_bucket', 'r2_public_url',
             'r2_jurisdiction', 'stt_model', 'stt_language',
-            'mp3_bitrate', 'mp3_sample_rate', 'ffmpeg_base_url', 'ffmpeg_core_url',
+            'mp3_bitrate', 'mp3_sample_rate',
         ];
         foreach ( $text_fields as $f ) {
             if ( isset( $_POST[ 'snn_' . $f ] ) ) {
@@ -1398,7 +1388,7 @@ function snn_media_settings_page() {
             }
         }
 
-        $number_fields = [ 'chunk_size_mb', 'max_file_mb', 'mp3_max_source_mb', 'vtt_max_words', 'vtt_max_seconds' ];
+        $number_fields = [ 'chunk_size_mb', 'max_file_mb', 'vtt_max_words', 'vtt_max_seconds' ];
         foreach ( $number_fields as $f ) {
             if ( isset( $_POST[ 'snn_' . $f ] ) ) {
                 snn_media_set( $f, max( 0, (int) $_POST[ 'snn_' . $f ] ) );
@@ -1555,26 +1545,25 @@ function snn_media_settings_page() {
             <?php $ffmpeg_urls = snn_media_ffmpeg_urls(); ?>
             <div class="snn-settings-card">
                 <h2>Audio extraction (ffmpeg.wasm)
-                    <?php if ( $ffmpeg_urls['bundled'] && ! $ffmpeg_urls['missing'] ) : ?>
-                        <span class="snn-badge snn-badge-ok">Bundled &amp; self-hosted</span>
-                    <?php elseif ( $ffmpeg_urls['missing'] ) : ?>
+                    <?php if ( $ffmpeg_urls['missing'] ) : ?>
                         <span class="snn-badge snn-badge-err">Files missing</span>
                     <?php else : ?>
-                        <span class="snn-badge snn-badge-wait">Custom URLs</span>
+                        <span class="snn-badge snn-badge-ok">Self-hosted</span>
                     <?php endif; ?>
                 </h2>
                 <p class="snn-help snn-note">
-                    Conversion runs <strong>entirely in the visitor's browser, on their own CPU</strong>. The server never
+                    Conversion runs <strong>entirely in the browser, on the editor's own CPU</strong>. The server never
                     decodes video: the browser encodes a small mono MP3 and uploads only that &mdash; a few MB even for a
-                    multi-gigabyte lesson. There is no <code>ffmpeg</code> binary and no <code>exec()</code> anywhere in this
-                    plugin. Keep the Media Library tab open while a batch is processing.
-                    The single-threaded core is used, so no <code>SharedArrayBuffer</code> or COOP/COEP headers are needed.
+                    multi-gigabyte lesson. There is no <code>ffmpeg</code> binary and no <code>exec()</code> anywhere in
+                    this plugin. Keep the Media Library tab open while a batch is processing.
+                    The source is mounted through WORKERFS and read on demand, so it is never copied into WebAssembly
+                    memory and large files convert fine.
                 </p>
                 <?php if ( $ffmpeg_urls['missing'] ) : ?>
                     <p class="snn-help snn-note" style="border-color:#fca5a5;background:#fef2f2;color:#991b1b">
                         <strong>Missing from <code>assets/ffmpeg/</code>:</strong>
                         <?= esc_html( implode( ', ', $ffmpeg_urls['missing'] ) ) ?>.
-                        Re-deploy the plugin's <code>assets/ffmpeg/</code> folder, or point the fields below at a copy you host.
+                        Re-deploy the plugin's <code>assets/ffmpeg/</code> folder &mdash; MP3 extraction cannot run without it.
                     </p>
                 <?php endif; ?>
                 <label class="snn-toggle">
@@ -1594,43 +1583,11 @@ function snn_media_settings_page() {
                             value="<?= esc_attr( snn_media_get( 'mp3_sample_rate' ) ) ?>" placeholder="22050">
                         <p class="snn-help">22050 Hz covers the speech range. Whisper downsamples to 16000 Hz anyway.</p>
                     </div>
-                    <div class="snn-field">
-                        <label for="snn_mp3_max_source_mb">Skip sources larger than (MB)</label>
-                        <input type="number" min="0" id="snn_mp3_max_source_mb" name="snn_mp3_max_source_mb"
-                            value="<?= esc_attr( snn_media_get( 'mp3_max_source_mb' ) ) ?>">
-                        <p class="snn-help">
-                            The source is mounted through WORKERFS and read on demand, so it is never copied into
-                            WebAssembly memory &mdash; large files are fine. 0 disables the guard entirely.
-                        </p>
-                    </div>
-                </div>
-
-                <h3 class="snn-subhead">Where ffmpeg.wasm is loaded from</h3>
-                <p class="snn-help">
-                    Leave both blank to use the copies bundled with this plugin, served from your own domain.
-                    That is strongly recommended: <code>ffmpeg.js</code> starts its worker with
-                    <code>new Worker(new URL('./814.ffmpeg.js', &hellip;))</code>, and browsers refuse to construct a
-                    Worker from another origin no matter what CORS headers that origin sends. Loading from a CDN is
-                    the usual cause of conversions failing with an unhelpful error.
-                </p>
-                <div class="snn-grid">
-                    <div class="snn-field">
-                        <label for="snn_ffmpeg_base_url">ffmpeg.wasm UMD base URL</label>
-                        <input type="url" id="snn_ffmpeg_base_url" name="snn_ffmpeg_base_url"
-                            value="<?= esc_attr( snn_media_get( 'ffmpeg_base_url' ) ) ?>"
-                            placeholder="<?= esc_attr( $ffmpeg_urls['bundled'] ? $ffmpeg_urls['base'] . ' (bundled)' : '' ) ?>">
-                        <p class="snn-help">Must serve <code>ffmpeg.js</code> and <code>814.ffmpeg.js</code> from <em>this</em> origin.</p>
-                    </div>
-                    <div class="snn-field">
-                        <label for="snn_ffmpeg_core_url">ffmpeg core base URL</label>
-                        <input type="url" id="snn_ffmpeg_core_url" name="snn_ffmpeg_core_url"
-                            value="<?= esc_attr( snn_media_get( 'ffmpeg_core_url' ) ) ?>"
-                            placeholder="<?= esc_attr( $ffmpeg_urls['bundled'] ? $ffmpeg_urls['core'] . ' (bundled)' : '' ) ?>">
-                        <p class="snn-help">Must serve <code>ffmpeg-core.js</code> and <code>ffmpeg-core.wasm</code>.</p>
-                    </div>
                 </div>
                 <p class="snn-help">
-                    Bundled versions: <code>@ffmpeg/ffmpeg 0.12.15</code>, <code>@ffmpeg/core 0.12.10</code>.
+                    Bundled and served from this domain:
+                    <code>@ffmpeg/ffmpeg 0.12.15</code>, <code>@ffmpeg/core 0.12.10</code>.
+                    Loading these from a CDN is not offered, because a Worker cannot be constructed from another origin.
                 </p>
             </div>
 

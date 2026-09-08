@@ -189,10 +189,10 @@
 		}
 
 		ffmpegPromise = ( async function () {
-			if ( CFG.ffmpegBundled && CFG.ffmpegMissing && CFG.ffmpegMissing.length ) {
+			if ( CFG.ffmpegMissing && CFG.ffmpegMissing.length ) {
 				throw new Error(
 					'These ffmpeg.wasm files are missing from the plugin: ' + CFG.ffmpegMissing.join( ', ' ) +
-					'. Re-deploy assets/ffmpeg/, or set a custom ffmpeg URL in Media Settings.'
+					'. Re-deploy the assets/ffmpeg/ folder.'
 				);
 			}
 
@@ -244,9 +244,9 @@
 	 * Extracts a low-bitrate mono MP3 from a video, entirely in the browser.
 	 *
 	 * The source is mounted through WORKERFS rather than copied in with
-	 * writeFile. WORKERFS reads from the File/Blob on demand, so a 2 GB lesson
-	 * no longer needs 2 GB of WebAssembly heap just to be opened — which is the
-	 * limit large uploads used to hit.
+	 * writeFile. WORKERFS reads from the File/Blob on demand, so a multi-gigabyte
+	 * lesson does not need a matching amount of WebAssembly heap just to be
+	 * opened — which is what used to make large uploads fail.
 	 *
 	 * @param {Blob}     blob      Source video (a File where possible).
 	 * @param {string}   extension Container extension, used to name the input.
@@ -254,14 +254,6 @@
 	 * @return {Promise<Blob>} The encoded MP3.
 	 */
 	async function extractMp3( blob, extension, onStatus ) {
-		var maxBytes = CFG.mp3MaxSourceMb * 1024 * 1024;
-		if ( maxBytes > 0 && blob.size > maxBytes ) {
-			throw new Error(
-				'This video is ' + formatBytes( blob.size ) + ', above the ' + CFG.mp3MaxSourceMb +
-				' MB browser-conversion limit. Raise it in Media Settings, or skip the MP3 for this file.'
-			);
-		}
-
 		var ffmpeg = await getFFmpeg( onStatus );
 
 		var mountPoint = '/snn';
