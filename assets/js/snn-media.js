@@ -1089,12 +1089,33 @@
 			'<code class="snn-copy" data-url="' + esc( url ) + '" title="Click to copy">' + esc( url ) + '</code></div>';
 	}
 
+	/**
+	 * Ink for a chip filled with `hex`: black, unless the fill is dark enough
+	 * that black would disappear into it.
+	 *
+	 * Tag colours are picked freely, so neither ink works on its own — pale
+	 * yellow needs black, navy needs white. This is the sRGB relative
+	 * luminance, the same measure the WCAG contrast ratio is built on.
+	 */
+	function tagInk( hex ) {
+		var m = /^#([0-9a-f]{6})$/i.exec( String( hex || '' ) );
+		if ( ! m ) {
+			return '#111827';
+		}
+		var channels = [ 0, 2, 4 ].map( function ( at ) {
+			var v = parseInt( m[ 1 ].substr( at, 2 ), 16 ) / 255;
+			return v <= 0.03928 ? v / 12.92 : Math.pow( ( v + 0.055 ) / 1.055, 2.4 );
+		} );
+		var luminance = 0.2126 * channels[ 0 ] + 0.7152 * channels[ 1 ] + 0.0722 * channels[ 2 ];
+		return luminance > 0.36 ? '#111827' : '#ffffff';
+	}
+
 	/** A tag chip. `extra` carries the data attributes the caller needs. */
 	function tagChip( tag, opts ) {
 		opts = opts || {};
 		return '<span class="snn-tag' + ( opts.on ? ' is-on' : '' ) + ( opts.button ? ' is-button' : '' ) + '"' +
 			( opts.attrs || '' ) +
-			' style="--snn-tag-color:' + esc( tag.color ) + '">' +
+			' style="--snn-tag-color:' + esc( tag.color ) + ';--snn-tag-ink:' + tagInk( tag.color ) + '">' +
 			esc( tag.name ) +
 			( opts.count && tag.uses !== undefined ? ' <span class="snn-tag-count">' + tag.uses + '</span>' : '' ) +
 			'</span>';
@@ -1114,7 +1135,8 @@
 
 		tagFilterEl.innerHTML =
 			'<span class="snn-tagfilter-label">Filter:</span>' +
-			'<span class="snn-tag is-button' + ( state.tag ? '' : ' is-on' ) + '" data-filter="0" style="--snn-tag-color:#6b7280">All</span>' +
+			'<span class="snn-tag is-button' + ( state.tag ? '' : ' is-on' ) +
+				'" data-filter="0" style="--snn-tag-color:#6b7280;--snn-tag-ink:#ffffff">All</span>' +
 			state.tags.map( function ( tag ) {
 				return tagChip( tag, {
 					on: state.tag === tag.id,

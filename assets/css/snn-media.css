@@ -121,25 +121,32 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 2px 9px;
+    padding: 3px 10px;
     border-radius: 999px;
     font-size: 11px;
     font-weight: 600;
     line-height: 1.7;
     white-space: nowrap;
-    color: var(--snn-tag-color);
-    border: 1px solid color-mix(in srgb, var(--snn-tag-color) 40%, #fff);
-    background: color-mix(in srgb, var(--snn-tag-color) 10%, #fff);
-}
-.snn-media .snn-tag.is-button { cursor: pointer; user-select: none; }
-.snn-media .snn-tag.is-button:hover { border-color: var(--snn-tag-color); }
-.snn-media .snn-tag.is-on {
+    /* Flat fill, no border and no shadow. The ink is black on all but the
+       darkest fills — tagChip() in snn-media.js works it out from the colour's
+       luminance and sets --snn-tag-ink, so contrast holds either way. */
+    color: var(--snn-tag-ink, #111827);
     background: var(--snn-tag-color);
-    border-color: var(--snn-tag-color);
-    color: #fff;
-    /* White on a pale tag colour would vanish. A hard 1px offset keeps the
-       letters readable at any colour without softening them. */
-    text-shadow: 1px 1px 0 #000;
+    border: 0;
+}
+.snn-media .snn-tag.is-button {
+    cursor: pointer;
+    user-select: none;
+    /* Selectable chips read as off by fading, not by inverting — so the colour
+       stays recognisable and the label stays legible in both states. */
+    opacity: .45;
+    transition: opacity .15s ease, box-shadow .15s ease;
+}
+.snn-media .snn-tag.is-button:hover { opacity: .8; }
+.snn-media .snn-tag.is-on,
+.snn-media .snn-tag.is-button.is-on:hover {
+    opacity: 1;
+    box-shadow: 0 0 0 2px rgba(17, 24, 39, .22);
 }
 .snn-tag-count { opacity: .7; font-weight: 500; }
 
