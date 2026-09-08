@@ -37,7 +37,6 @@ function snn_media_defaults() {
         'r2_secret_access_key' => '',
         'r2_public_url'        => '',
         'r2_jurisdiction'      => '',
-        'r2_prefix'            => '',
         'r2_auto_sync'         => 0,
         'r2_delete_local'      => 0,
 
@@ -296,18 +295,12 @@ function snn_media_r2_config() {
         'access_key' => trim( (string) snn_media_get( 'r2_access_key_id' ) ),
         'secret_key' => trim( (string) snn_media_get( 'r2_secret_access_key' ) ),
         'public_url' => rtrim( trim( (string) snn_media_get( 'r2_public_url' ) ), '/' ),
-        'prefix'     => trim( trim( (string) snn_media_get( 'r2_prefix' ) ), '/' ),
         'host'       => $host,
     ];
 }
 
 function snn_media_r2_configured() {
     return null !== snn_media_r2_config();
-}
-
-/** Prepends the configured key prefix to an object name. */
-function snn_media_r2_key( $config, $filename ) {
-    return ( $config['prefix'] ? $config['prefix'] . '/' : '' ) . $filename;
 }
 
 /**
@@ -654,7 +647,7 @@ function snn_media_sync_to_r2( $row ) {
 
     snn_media_update( $row->id, [ 'r2_status' => 'syncing', 'error_msg' => null ] );
 
-    $video_key = snn_media_r2_key( $config, $row->filename );
+    $video_key = $row->filename;
     $result    = snn_media_r2_put( $config, $video_key, $video_path, snn_media_mime_for_ext( $row->extension ) );
 
     if ( ! $result['ok'] ) {
@@ -677,7 +670,7 @@ function snn_media_sync_to_r2( $row ) {
         if ( ! $name || ! file_exists( $dir . $name ) ) {
             continue;
         }
-        $key = snn_media_r2_key( $config, $name );
+        $key = $name;
         $res = snn_media_r2_put( $config, $key, $dir . $name, snn_media_mime_for_ext( pathinfo( $name, PATHINFO_EXTENSION ) ) );
         if ( $res['ok'] ) {
             $update[ $url_field ] = $config['public_url'] . '/' . snn_media_encode_key( $key );
@@ -711,12 +704,12 @@ function snn_media_purge_from_r2( $row ) {
     if ( ! $config ) {
         return;
     }
-    $keys = [ $row->r2_key ? $row->r2_key : snn_media_r2_key( $config, $row->filename ) ];
+    $keys = [ $row->r2_key ? $row->r2_key : $row->filename ];
     if ( $row->mp3_file ) {
-        $keys[] = snn_media_r2_key( $config, $row->mp3_file );
+        $keys[] = $row->mp3_file;
     }
     if ( $row->vtt_file ) {
-        $keys[] = snn_media_r2_key( $config, $row->vtt_file );
+        $keys[] = $row->vtt_file;
     }
     foreach ( array_unique( $keys ) as $key ) {
         snn_media_r2_delete( $config, $key );
@@ -1342,7 +1335,7 @@ function snn_media_settings_page() {
 
         $text_fields = [
             'allowed_extensions', 'r2_account_id', 'r2_bucket', 'r2_public_url',
-            'r2_jurisdiction', 'r2_prefix', 'stt_model', 'stt_language',
+            'r2_jurisdiction', 'stt_model', 'stt_language',
             'mp3_bitrate', 'mp3_sample_rate', 'ffmpeg_base_url', 'ffmpeg_core_url',
         ];
         foreach ( $text_fields as $f ) {
@@ -1393,7 +1386,7 @@ function snn_media_settings_page() {
         } else {
             $probe = wp_tempnam( 'snn-r2-probe' );
             file_put_contents( $probe, 'snn-learn r2 connectivity probe ' . gmdate( 'c' ) );
-            $key    = snn_media_r2_key( $config, '.snn-learn-r2-test.txt' );
+            $key    = '.snn-learn-r2-test.txt';
             $result = snn_media_r2_put( $config, $key, $probe, 'text/plain' );
             @unlink( $probe );
 
@@ -1482,13 +1475,17 @@ function snn_media_settings_page() {
                             value="<?= esc_attr( snn_media_get( 'r2_jurisdiction' ) ) ?>" placeholder="eu (optional)">
                         <p class="snn-help">Leave blank unless your bucket is jurisdiction-restricted.</p>
                     </div>
-                    <div class="snn-field">
-                        <label for="snn_r2_prefix">Key prefix</label>
-                        <input type="text" id="snn_r2_prefix" name="snn_r2_prefix"
-                            value="<?= esc_attr( snn_media_get( 'r2_prefix' ) ) ?>" placeholder="lessons (optional)">
-                        <p class="snn-help">Optional folder inside the bucket.</p>
-                    </div>
                 </div>
+
+                <?php $resolved = snn_media_r2_config(); ?>
+                <p class="snn-help snn-note">
+                    <strong>S3 API endpoint in use:</strong>
+                    <code><?= $resolved ? esc_html( 'https://' . $resolved['host'] . '/' . $resolved['bucket'] ) : 'fill in the fields above' ?></code><br>
+                    This is built from the Account ID, Jurisdiction and Bucket &mdash; it should match the
+                    <em>S3 API</em> line on your bucket's settings page in the Cloudflare dashboard.
+                    Objects are stored at the root of the bucket under their generated filename, so a
+                    synced video is served from <code><?= esc_html( rtrim( (string) snn_media_get( 'r2_public_url' ), '/' ) ?: 'https://your-domain' ) ?>/&lt;filename&gt;</code>.
+                </p>
 
                 <label class="snn-toggle">
                     <input type="checkbox" name="snn_r2_auto_sync" value="1" <?php checked( snn_media_get( 'r2_auto_sync' ) ); ?>>
