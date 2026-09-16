@@ -414,6 +414,33 @@
     word-break: break-all;
     margin: 0 0 5px;
 }
+.snn-item-desc {
+    margin: -2px 0 6px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: #334155;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.snn-item-desc.is-empty { color: var(--snn-muted); font-style: italic; }
+.snn-item-descedit {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+.snn-item-descedit .snn-item-tagedit-label { padding-top: 7px; }
+.snn-desc-input {
+    flex: 1 1 320px;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    resize: vertical;
+}
+.snn-desc-actions { display: flex; gap: 6px; align-items: center; padding-top: 2px; }
 .snn-item-sub {
     display: flex;
     align-items: center;

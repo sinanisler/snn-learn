@@ -956,7 +956,30 @@
 			log( 'Transcribing ' + name + ' via OpenRouter…', 'info' );
 			var transcribed = await api( 'transcribe', { method: 'POST', body: form( { id: item.id } ) } );
 			log( 'Subtitles ready for ' + name + ' (' + transcribed.cues + ' cues).', 'ok' );
+			// The server writes the description right after transcribing.
+			if ( transcribed.description ) {
+				log( 'Described ' + name + ': ' + transcribed.description, 'ok' );
+			} else if ( transcribed.desc_error ) {
+				log( 'Could not describe ' + name + ': ' + transcribed.desc_error, 'warn' );
+			}
 			return transcribed.item;
+		}
+
+		// ---- One-sentence AI description, from the subtitles ----
+		if ( 'desc' === step ) {
+			if ( ! CFG.descReady ) {
+				log( 'Skipping description for ' + name + ' — set an OpenRouter key and a text generation model in Media Settings.', 'warn' );
+				return item;
+			}
+			if ( 'done' !== item.vtt_status ) {
+				log( 'Skipping description for ' + name + ' — it is written from the subtitles, which are not ready.', 'warn' );
+				return item;
+			}
+
+			status( 'Describing…' );
+			var described = await api( 'describe', { method: 'POST', body: form( { id: item.id } ) } );
+			log( 'Described ' + name + ': ' + described.item.description, 'ok' );
+			return described.item;
 		}
 
 		// ---- Cloudflare R2 ----
@@ -1030,6 +1053,10 @@
 	// Which rows the editor has opened. Held out here so a refresh triggered by
 	// a background lane does not snap every open row shut again.
 	var expanded = {};
+
+	// Unsaved description edits, by item id — same reason: a background refresh
+	// must not throw away what the author is typing.
+	var descDrafts = {};
 
 	// Tags to stamp on the next upload. Remembered across reloads because a
 	// batch of lessons is usually dropped in over several sittings.
@@ -1189,6 +1216,12 @@
 			return;
 		}
 
+		// Keep the caret where it was if a refresh lands mid-typing.
+		var active = document.activeElement;
+		var typingIn = active && active.dataset && active.dataset.descFor
+			? { id: active.dataset.descFor, start: active.selectionStart, end: active.selectionEnd }
+			: null;
+
 		itemsEl.innerHTML = state.items.map( function ( item ) {
 			var canConvertHere = item.local_exists;
 			var open = !! expanded[ item.id ];
@@ -1205,6 +1238,9 @@
 					'</div>' +
 					'<div class="snn-item-main">' +
 						'<p class="snn-item-name">' + esc( item.original_name ) + '</p>' +
+						( item.description
+							? '<p class="snn-item-desc" title="' + esc( item.description ) + '">' + esc( item.description ) + '</p>'
+							: ( 'processing' === item.desc_status ? '<p class="snn-item-desc is-empty">Writing a description…</p>' : '' ) ) +
 						'<div class="snn-item-sub">' +
 							'<span>' + esc( item.filesize_h ) + '</span>' +
 							'<span>' + esc( item.uploaded_date ) + '</span>' +
@@ -1231,6 +1267,20 @@
 				// ----- details, hidden until the row is opened -----
 				'<div class="snn-item-body"' + ( open ? '' : ' hidden' ) + '>' +
 					( item.error_msg ? '<div class="snn-item-error">' + esc( item.error_msg ) + '</div>' : '' ) +
+					'<div class="snn-item-descedit">' +
+						'<label class="snn-item-tagedit-label" for="snn-desc-' + item.id + '">Description</label>' +
+						'<textarea id="snn-desc-' + item.id + '" class="snn-desc-input" rows="2" maxlength="300" data-desc-for="' + item.id + '" placeholder="' +
+							esc( 'done' === item.vtt_status ? 'Not described yet — click Describe, or type your own.' : 'Written automatically once subtitles exist, or type your own.' ) + '">' +
+							esc( undefined !== descDrafts[ item.id ] ? descDrafts[ item.id ] : item.description ) +
+						'</textarea>' +
+						'<div class="snn-desc-actions">' +
+							'<button type="button" class="snn-btn snn-btn-sm" data-desc-save="' + item.id + '"' + ( undefined !== descDrafts[ item.id ] ? '' : ' hidden' ) + '>Save</button>' +
+							'<button type="button" class="snn-btn snn-btn-ghost snn-btn-sm" data-act="desc" data-id="' + item.id + '"' +
+								( 'done' !== item.vtt_status ? ' disabled title="Subtitles are needed first"' : ( CFG.descReady ? '' : ' disabled title="Set an OpenRouter key and text model in Media Settings"' ) ) + '>' +
+								( item.description ? 'Rewrite with AI' : 'Describe with AI' ) +
+							'</button>' +
+						'</div>' +
+					'</div>' +
 					'<div class="snn-item-urls">' +
 						urlRow( 'Video', item.playback_url ) +
 						urlRow( 'Subtitle', item.r2_vtt_url || item.vtt_url ) +
@@ -1261,6 +1311,14 @@
 				'</div>' +
 			'</div>';
 		} ).join( '' );
+
+		if ( typingIn ) {
+			var again = $( '[data-desc-for="' + typingIn.id + '"]', itemsEl );
+			if ( again ) {
+				again.focus();
+				again.setSelectionRange( typingIn.start, typingIn.end );
+			}
+		}
 
 		renderPagination();
 		repaintAllStatuses();
@@ -1470,8 +1528,60 @@
 		} );
 	}
 
+	function saveDescription( id ) {
+		var input = $( '[data-desc-for="' + id + '"]', itemsEl );
+		var button = $( '[data-desc-save="' + id + '"]', itemsEl );
+		if ( ! input ) {
+			return;
+		}
+		if ( button ) {
+			button.disabled = true;
+		}
+
+		api( 'description', { method: 'POST', body: form( { id: id, description: input.value.trim() } ) } )
+			.then( function ( data ) {
+				delete descDrafts[ id ];
+				replaceItem( data.item );
+				log( 'Saved the description of ' + data.item.original_name + '.', 'ok' );
+			} )
+			.catch( function ( err ) {
+				if ( button ) {
+					button.disabled = false;
+				}
+				log( 'Could not save the description: ' + describeError( err ), 'err' );
+			} );
+	}
+
 	if ( itemsEl ) {
+		itemsEl.addEventListener( 'input', function ( event ) {
+			var input = event.target.closest( '[data-desc-for]' );
+			if ( ! input ) {
+				return;
+			}
+			var id = parseInt( input.dataset.descFor, 10 );
+			descDrafts[ id ] = input.value;
+			var button = $( '[data-desc-save="' + id + '"]', itemsEl );
+			if ( button ) {
+				button.hidden = false;
+				button.disabled = false;
+			}
+		} );
+
+		// Ctrl/Cmd+Enter saves; Enter alone is fine for a one-liner too.
+		itemsEl.addEventListener( 'keydown', function ( event ) {
+			var input = event.target.closest( '[data-desc-for]' );
+			if ( input && 'Enter' === event.key && ! event.shiftKey ) {
+				event.preventDefault();
+				saveDescription( parseInt( input.dataset.descFor, 10 ) );
+			}
+		} );
+
 		itemsEl.addEventListener( 'click', function ( event ) {
+			var saveBtn = event.target.closest( '[data-desc-save]' );
+			if ( saveBtn ) {
+				saveDescription( parseInt( saveBtn.dataset.descSave, 10 ) );
+				return;
+			}
 			if ( event.target.closest( '[data-open-tags]' ) ) {
 				openTagManager();
 				return;

@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'SNN_MEDIA_DB_VERSION', '1.2' );
+define( 'SNN_MEDIA_DB_VERSION', '1.3' );
 
 // ============================================================
 // 1. SETTINGS
@@ -57,6 +57,8 @@ function snn_media_defaults() {
         'ai_model'             => 'anthropic/claude-sonnet-4.5',
         'stt_language'         => '',
         'vtt_auto'             => 1,
+        // A one-line AI summary written from the subtitles once they exist.
+        'desc_auto'            => 1,
         'vtt_max_words'        => 12,
         'vtt_max_seconds'      => 5,
         'vtt_pause_gap'        => 0.8,
@@ -222,6 +224,8 @@ function snn_media_create_table() {
         r2_synced_at int unsigned DEFAULT NULL,
         local_deleted tinyint(1) NOT NULL DEFAULT 0,
         error_msg text DEFAULT NULL,
+        description text DEFAULT NULL,
+        desc_status varchar(20) NOT NULL DEFAULT 'pending',
         PRIMARY KEY  (id),
         UNIQUE KEY uq_filename (filename),
         KEY idx_uploaded_at (uploaded_at),
@@ -419,6 +423,8 @@ function snn_media_row_to_array( $row, $tags = null ) {
             ? $row->r2_thumb_url
             : ( $row->thumb_file && file_exists( $dir . $row->thumb_file ) ? $base_url . rawurlencode( $row->thumb_file ) : '' ),
         'error_msg'     => $row->error_msg,
+        'description'   => (string) ( $row->description ?? '' ),
+        'desc_status'   => (string) ( $row->desc_status ?? 'pending' ),
         'tags'          => null === $tags ? ( snn_media_tags_for( [ (int) $row->id ] )[ (int) $row->id ] ?? [] ) : $tags,
     ];
 }
@@ -1063,6 +1069,77 @@ function snn_media_decode_model_json( $content ) {
     return null;
 }
 
+/**
+ * Writes a one-sentence summary of a video from its subtitles and stores it.
+ *
+ * Meant for the library, not for learners: its job is to tell the admin what
+ * "final_v2_edit.mp4" actually contains. Never throws; failures land in
+ * desc_status / error_msg like the other pipeline steps.
+ *
+ * @return string|WP_Error The description.
+ */
+function snn_media_describe( $row ) {
+    if ( ! $row ) {
+        return new WP_Error( 'snn_media_not_found', 'That media item no longer exists.' );
+    }
+
+    $vtt = snn_media_vtt_text( $row );
+    if ( is_wp_error( $vtt ) ) {
+        snn_media_update( $row->id, [ 'desc_status' => 'error' ] );
+        return $vtt;
+    }
+
+    // The opening minutes say what a video is about; capping the transcript
+    // keeps a two-hour recording cheap to summarise.
+    $transcript = mb_substr( snn_media_vtt_to_transcript( $vtt, 30 ), 0, 12000 );
+    if ( '' === trim( $transcript ) ) {
+        snn_media_update( $row->id, [ 'desc_status' => 'error' ] );
+        return new WP_Error( 'snn_media_empty_vtt', 'The subtitles are empty, so there is nothing to describe.' );
+    }
+
+    snn_media_update( $row->id, [ 'desc_status' => 'processing' ] );
+
+    $result = snn_media_openrouter_json(
+        'You label videos in a course creator\'s media library so they can recognise each file at a glance. '
+        . 'You are given the file name and the transcript. Write ONE plain sentence, at most 160 characters, '
+        . 'saying concretely what the video covers (topic, tool, task). No filler such as "In this video" or "This video". '
+        . 'No quotes, no markdown. Write in the language the transcript is spoken in.',
+        'File name: ' . $row->original_name . "\n\nTranscript:\n" . $transcript,
+        [
+            'type'                 => 'object',
+            'additionalProperties' => false,
+            'required'             => [ 'description' ],
+            'properties'           => [
+                'description' => [ 'type' => 'string', 'description' => 'One sentence, max 160 characters.' ],
+            ],
+        ]
+    );
+
+    $text = is_wp_error( $result ) ? '' : trim( preg_replace( '/\s+/', ' ', (string) ( $result['description'] ?? '' ) ), " \t\"'" );
+
+    if ( '' === $text ) {
+        $error = is_wp_error( $result ) ? $result : new WP_Error( 'snn_media_desc_empty', 'The model returned an empty description.' );
+        snn_media_update( $row->id, [ 'desc_status' => 'error', 'error_msg' => 'Description: ' . $error->get_error_message() ] );
+        return $error;
+    }
+
+    $text = mb_substr( sanitize_text_field( $text ), 0, 300 );
+    $update = [ 'description' => $text, 'desc_status' => 'done' ];
+    if ( 0 === strpos( (string) $row->error_msg, 'Description:' ) ) {
+        $update['error_msg'] = null; // An earlier failed attempt is now resolved.
+    }
+    snn_media_update( $row->id, $update );
+
+    return $text;
+}
+
+/** Whether descriptions should be written without anyone clicking. */
+function snn_media_describe_automatically() {
+    return snn_media_get( 'desc_auto' )
+        && '' !== trim( (string) snn_media_get( 'openrouter_api_key' ) )
+        && '' !== trim( (string) snn_media_get( 'ai_model' ) );
+}
+
 // ============================================================
 // 7. R2 SYNC PIPELINE
 // ============================================================
@@ -1219,6 +1296,20 @@ function snn_media_run_queue() {
         }
     }
 
+    // Descriptions for anything with subtitles but no summary yet — new uploads
+    // and the existing library alike. A few per run keeps each tick short.
+    if ( snn_media_describe_automatically() ) {
+        $rows = $wpdb->get_results( // phpcs:ignore WordPress.DB
+            "SELECT * FROM $table
+             WHERE vtt_status = 'done' AND desc_status = 'pending'
+               AND ( description IS NULL OR description = '' )
+             ORDER BY uploaded_at DESC LIMIT 3"
+        );
+        foreach ( $rows as $row ) {
+            snn_media_describe( $row );
+        }
+    }
+
     if ( snn_media_get( 'r2_auto_sync' ) && snn_media_r2_configured() ) {
         $rows = $wpdb->get_results( // phpcs:ignore WordPress.DB
             "SELECT * FROM $table
@@ -1302,6 +1393,14 @@ add_action( 'rest_api_init', function () {
         'callback' => 'snn_media_rest_transcribe',
     ] ) );
 
+    register_rest_route( 'snn-learn/v1', '/media/describe', array_merge( $auth, [
+        'methods'  => 'POST',
+        'callback' => 'snn_media_rest_describe',
+    ] ) );
+    register_rest_route( 'snn-learn/v1', '/media/description', array_merge( $auth, [
+        'methods'  => 'POST',
+        'callback' => 'snn_media_rest_save_description',
+    ] ) );
     register_rest_route( 'snn-learn/v1', '/media/r2-sync', array_merge( $auth, [
         'methods'  => 'POST',
         'callback' => 'snn_media_rest_r2_sync',
@@ -1368,7 +1467,9 @@ function snn_media_rest_items( WP_REST_Request $request ) {
     }
     if ( '' !== $search ) {
         $like    = '%' . $wpdb->esc_like( $search ) . '%';
-        $where[] = '(t.original_name LIKE %s OR t.filename LIKE %s)';
+        // The description is searched too, so a vaguely named file is findable by its content.
+        $where[] = '(t.original_name LIKE %s OR t.filename LIKE %s OR t.description LIKE %s)';
+        $args[]  = $like;
         $args[]  = $like;
         $args[]  = $like;
     }
@@ -1619,9 +1720,59 @@ function snn_media_rest_transcribe( WP_REST_Request $request ) {
         'error_msg'  => null,
     ] );
 
+    // Describe straight away while the author is watching the library. A failed
+    // description is recorded on the row but never fails the transcription.
+    $described = null;
+    if ( snn_media_describe_automatically() && '' === trim( (string) $row->description ) ) {
+        $described = snn_media_describe( snn_media_find( $row->id ) );
+    }
+
+    return rest_ensure_response( [
+        'success'     => true,
+        'description' => is_string( $described ) ? $described : '',
+        'desc_error'  => is_wp_error( $described ) ? $described->get_error_message() : '',
+        'cues'        => $result['cues'],
+        'item'    => snn_media_row_to_array( snn_media_find( $row->id ) ),
+    ] );
+}
+
+/** POST /media/describe — (re)writes one item's AI description from its subtitles. */
+function snn_media_rest_describe( WP_REST_Request $request ) {
+    @set_time_limit( 300 );
+
+    $row = snn_media_find( (int) ( $request->get_body_params()['id'] ?? 0 ) );
+    if ( ! $row ) {
+        return new WP_Error( 'snn_media_not_found', 'That media item no longer exists.', [ 'status' => 404 ] );
+    }
+
+    $result = snn_media_describe( $row );
+    if ( is_wp_error( $result ) ) {
+        // 422, not 5xx, so a proxy like Cloudflare passes the message through.
+        return new WP_Error( $result->get_error_code(), $result->get_error_message(), [ 'status' => 422 ] );
+    }
+
     return rest_ensure_response( [
         'success' => true,
-        'cues'    => $result['cues'],
+        'item'    => snn_media_row_to_array( snn_media_find( $row->id ) ),
+    ] );
+}
+
+/** POST /media/description — saves a hand-edited description. */
+function snn_media_rest_save_description( WP_REST_Request $request ) {
+    $params = $request->get_body_params();
+    $row    = snn_media_find( (int) ( $params['id'] ?? 0 ) );
+    if ( ! $row ) {
+        return new WP_Error( 'snn_media_not_found', 'That media item no longer exists.', [ 'status' => 404 ] );
+    }
+
+    $text = mb_substr( sanitize_text_field( (string) ( $params['description'] ?? '' ) ), 0, 300 );
+
+    // Marked done either way: an author who cleared it on purpose should not
+    // get it silently rewritten by the background queue.
+    snn_media_update( $row->id, [ 'description' => $text, 'desc_status' => 'done' ] );
+
+    return rest_ensure_response( [
+        'success' => true,
         'item'    => snn_media_row_to_array( snn_media_find( $row->id ) ),
     ] );
 }
@@ -1879,6 +2030,7 @@ function snn_media_js_config() {
         'mp3Bitrate'     => (string) snn_media_get( 'mp3_bitrate' ),
         'mp3SampleRate'  => (string) snn_media_get( 'mp3_sample_rate' ),
         'vttAuto'        => (bool) snn_media_get( 'vtt_auto' ),
+        'descReady'      => '' !== trim( (string) snn_media_get( 'openrouter_api_key' ) ) && '' !== trim( (string) snn_media_get( 'ai_model' ) ),
         'r2AutoSync'     => (bool) snn_media_get( 'r2_auto_sync' ),
         'r2Configured'   => snn_media_r2_configured(),
         'sttConfigured'  => trim( (string) snn_media_get( 'openrouter_api_key' ) ) !== '',
@@ -2096,7 +2248,7 @@ function snn_media_settings_page() {
             }
         }
 
-        foreach ( [ 'r2_auto_sync', 'r2_delete_local', 'thumb_auto', 'mp3_auto', 'vtt_auto', 'cron_enabled' ] as $f ) {
+        foreach ( [ 'r2_auto_sync', 'r2_delete_local', 'thumb_auto', 'mp3_auto', 'vtt_auto', 'desc_auto', 'cron_enabled' ] as $f ) {
             snn_media_set( $f, isset( $_POST[ 'snn_' . $f ] ) ? 1 : 0 );
         }
 
@@ -2341,6 +2493,10 @@ function snn_media_settings_page() {
                 <label class="snn-toggle">
                     <input type="checkbox" name="snn_vtt_auto" value="1" <?php checked( snn_media_get( 'vtt_auto' ) ); ?>>
                     <span><strong>Transcribe automatically</strong> &mdash; generate subtitles as soon as the MP3 is ready. With this off, use the <em>Make subtitles</em> button.</span>
+                </label>
+                <label class="snn-toggle">
+                    <input type="checkbox" name="snn_desc_auto" value="1" <?php checked( snn_media_get( 'desc_auto' ) ); ?>>
+                    <span><strong>Describe automatically</strong> &mdash; once subtitles exist, write a one-sentence summary of what the video is about with the text generation model below. Videos that already have subtitles are described in the background too. With this off, use the <em>Describe</em> button.</span>
                 </label>
                 <h3 class="snn-subhead">Cue shaping</h3>
                 <div class="snn-grid">

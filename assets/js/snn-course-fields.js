@@ -164,11 +164,15 @@
 			var card = document.createElement( 'button' );
 			card.type = 'button';
 			card.className = 'snn-cf-media-card';
+			if ( item.description ) {
+				card.title = item.description;
+			}
 			card.innerHTML =
 				'<span class="snn-cf-media-thumb"' +
 					( item.poster_url ? ' style="background-image:url(' + esc( item.poster_url ) + ')"' : '' ) +
 				'></span>' +
 				'<span class="snn-cf-media-name">' + esc( item.original_name || item.filename ) + '</span>' +
+				( item.description ? '<span class="snn-cf-media-desc">' + esc( item.description ) + '</span>' : '' ) +
 				'<span class="snn-cf-media-meta">' +
 					esc( [ formatDuration( item.duration ), item.filesize_h ].filter( Boolean ).join( ' · ' ) ) +
 				'</span>';
