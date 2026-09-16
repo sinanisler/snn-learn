@@ -528,7 +528,10 @@
 				video_url: currentVideoUrl()
 			} )
 		} ).then( function ( response ) {
-			return response.json();
+			// A proxy (Cloudflare) can answer with plain text instead of JSON.
+			return response.json().catch( function () {
+				throw new Error( 'The server answered HTTP ' + response.status + ' without details. Check the PHP error log.' );
+			} );
 		} ).then( function ( data ) {
 			if ( ! data || ! data.success ) {
 				throw new Error( ( data && data.message ) || 'Generation failed.' );

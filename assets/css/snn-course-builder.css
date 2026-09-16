@@ -535,6 +535,46 @@ select.snb-status.is-pending { background-color: var(--snb-warn-soft); color: va
 .snb-field select { width: 100%; max-width: none; }
 .snb-field select.snb-status { width: auto; align-self: flex-start; }
 .snb-field-row { display: flex; gap: 12px; }
+.snb-field em { font-style: normal; font-weight: 400; }
+
+/* ---------- Featured image ---------- */
+.snb-thumb-field {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+.snb-thumb-preview,
+.snb-course-thumb {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	padding: 0;
+	overflow: hidden;
+	border: 1px solid var(--snb-border);
+	border-radius: 6px;
+	background: var(--snb-subtle);
+	cursor: pointer;
+}
+.snb-thumb-preview { width: 160px; aspect-ratio: 16 / 9; }
+.snb-course-thumb { width: 64px; aspect-ratio: 16 / 9; }
+.snb-thumb-preview:hover,
+.snb-course-thumb:hover { border-color: var(--snb-accent); }
+.snb-thumb-preview img,
+.snb-course-thumb img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.snb-thumb-empty { font-size: 11px; color: var(--snb-muted); }
+.snb-course-thumb .snb-thumb-empty { font-size: 9px; }
+.snb-thumb-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 6px;
+}
 
 /* ---------- Side panel ---------- */
 .snb-panel {

@@ -974,6 +974,9 @@ function snn_media_openrouter_json( $system, $user, $schema ) {
                     'schema' => $schema,
                 ],
             ],
+            // Only route to providers that honour response_format; otherwise
+            // OpenRouter may pick one that silently ignores the schema.
+            'provider'        => [ 'require_parameters' => true ],
         ] ),
     ] );
 
@@ -983,24 +986,81 @@ function snn_media_openrouter_json( $system, $user, $schema ) {
 
     $code = wp_remote_retrieve_response_code( $response );
     $body = wp_remote_retrieve_body( $response );
+    $data = json_decode( $body, true );
 
-    if ( 200 !== $code ) {
-        return new WP_Error( 'snn_media_ai_http', 'OpenRouter returned HTTP ' . $code . ': ' . mb_substr( $body, 0, 300 ) );
+    // OpenRouter reports failures as { error: { message } }, sometimes with a 200.
+    $error = is_array( $data ) ? ( $data['error']['message'] ?? '' ) : '';
+    if ( 200 !== $code || '' !== $error ) {
+        $detail = '' !== $error ? $error : mb_substr( wp_strip_all_tags( $body ), 0, 300 );
+        return new WP_Error(
+            'snn_media_ai_http',
+            sprintf( 'OpenRouter error (HTTP %d, model %s): %s', $code, $model, $detail )
+        );
     }
 
-    $data    = json_decode( $body, true );
-    $content = $data['choices'][0]['message']['content'] ?? '';
+    $choice  = $data['choices'][0] ?? [];
+    $content = $choice['message']['content'] ?? '';
+
+    // Some providers return content as a list of parts.
+    if ( is_array( $content ) ) {
+        $content = implode( '', array_map( function ( $part ) {
+            return is_array( $part ) ? (string) ( $part['text'] ?? '' ) : (string) $part;
+        }, $content ) );
+    }
+    $content = trim( (string) $content );
 
     if ( '' === $content ) {
-        return new WP_Error( 'snn_media_ai_empty', 'The model returned nothing. Try again, or pick a different model.' );
+        $reason = (string) ( $choice['finish_reason'] ?? '' );
+        return new WP_Error(
+            'snn_media_ai_empty',
+            'length' === $reason
+                ? 'The model ran out of output tokens before answering (' . $model . '). Reasoning models often do this — pick a non-reasoning model in Media Settings.'
+                : 'The model (' . $model . ') returned nothing. Try again, or pick a different model in Media Settings.'
+        );
     }
 
-    $parsed = json_decode( $content, true );
-    if ( JSON_ERROR_NONE !== json_last_error() ) {
-        return new WP_Error( 'snn_media_ai_json', 'The model did not return valid JSON. This usually means the model does not support structured output — try another one.' );
+    $parsed = snn_media_decode_model_json( $content );
+    if ( null === $parsed ) {
+        return new WP_Error(
+            'snn_media_ai_json',
+            'The model (' . $model . ') did not return valid JSON. It probably does not support structured output — try another model. It said: ' . mb_substr( $content, 0, 200 )
+        );
     }
 
     return $parsed;
+}
+
+/**
+ * Decodes a model's JSON answer, tolerating ```json fences and prose around
+ * the object — both common even when structured output was requested.
+ *
+ * @return array|null
+ */
+function snn_media_decode_model_json( $content ) {
+    $content = trim( (string) $content );
+
+    $parsed = json_decode( $content, true );
+    if ( is_array( $parsed ) ) {
+        return $parsed;
+    }
+
+    if ( preg_match( '/```(?:json)?\s*(.+?)\s*```/is', $content, $m ) ) {
+        $parsed = json_decode( $m[1], true );
+        if ( is_array( $parsed ) ) {
+            return $parsed;
+        }
+    }
+
+    $start = strpos( $content, '{' );
+    $end   = strrpos( $content, '}' );
+    if ( false !== $start && false !== $end && $end > $start ) {
+        $parsed = json_decode( substr( $content, $start, $end - $start + 1 ), true );
+        if ( is_array( $parsed ) ) {
+            return $parsed;
+        }
+    }
+
+    return null;
 }
 
 // ============================================================

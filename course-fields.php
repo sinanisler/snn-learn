@@ -1290,13 +1290,15 @@ function snn_cf_rest_generate( WP_REST_Request $request ) {
         snn_cf_ai_schema( $field )
     );
 
+    // 422, not 502: Cloudflare swaps an origin 502 for its own error page, which
+    // would hide the message the editor needs to show.
     if ( is_wp_error( $result ) ) {
-        return new WP_Error( $result->get_error_code(), $result->get_error_message(), [ 'status' => 502 ] );
+        return new WP_Error( $result->get_error_code(), $result->get_error_message(), [ 'status' => 422 ] );
     }
 
     $rows = snn_cf_ai_normalize_rows( $field, $result['rows'] ?? [] );
     if ( ! $rows ) {
-        return new WP_Error( 'snn_cf_ai_empty', 'The model returned no usable rows. Try again or adjust the prompt.', [ 'status' => 502 ] );
+        return new WP_Error( 'snn_cf_ai_empty', 'The model returned no usable rows. Try again or adjust the prompt.', [ 'status' => 422 ] );
     }
 
     return rest_ensure_response( [

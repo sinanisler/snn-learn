@@ -107,6 +107,8 @@ function snn_builder_base_node( WP_Post $post ) {
         'permalink' => get_permalink( $post ),
         'edit_url'  => get_edit_post_link( $post->ID, 'raw' ),
         'modified'  => mysql2date( get_option( 'date_format' ), $post->post_modified ),
+        'thumbnail_id' => (int) get_post_thumbnail_id( $post ),
+        'thumb'     => get_the_post_thumbnail_url( $post, 'medium' ) ?: '',
     ];
 }
 
@@ -139,7 +141,6 @@ function snn_builder_course_summary( WP_Post $course ) {
 
     return snn_builder_base_node( $course ) + [
         'role'          => 'course',
-        'thumb'         => get_the_post_thumbnail_url( $course, 'medium' ) ?: '',
         'chapter_count' => $structure['chapter_count'],
         'lesson_count'  => $structure['lesson_count'],
         'duration'      => $structure['duration'],
@@ -481,7 +482,7 @@ function snn_builder_create_outline( WP_Post $course, $outline, $status ) {
 
 /**
  * POST /builder/update
- * { id, title?, slug?, excerpt?, status?, cascade? }
+ * { id, title?, slug?, excerpt?, status?, cascade?, thumbnail_id? }
  *
  * cascade applies the status to every chapter and lesson below the item too.
  */
@@ -517,6 +518,19 @@ function snn_builder_rest_update( WP_REST_Request $request ) {
             return snn_builder_error( 'snn_builder_forbidden', 'You cannot publish that item.', 403 );
         }
         $data['post_status'] = $status;
+    }
+
+    // Featured image: an image attachment id sets it, 0 removes it.
+    if ( null !== $request['thumbnail_id'] ) {
+        $thumbnail_id = absint( $request['thumbnail_id'] );
+        if ( $thumbnail_id ) {
+            if ( ! wp_attachment_is_image( $thumbnail_id ) ) {
+                return snn_builder_error( 'snn_builder_bad_image', 'That file is not an image.' );
+            }
+            set_post_thumbnail( $post->ID, $thumbnail_id );
+        } else {
+            delete_post_thumbnail( $post->ID );
+        }
     }
 
     if ( count( $data ) > 1 ) {
@@ -736,6 +750,8 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
     $dir  = plugin_dir_path( __FILE__ );
     $ver  = '1.0.' . ( @filemtime( $dir . 'assets/js/snn-course-builder.js' ) ?: 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 
+    // The featured image picker in the side panel uses the WordPress media modal.
+    wp_enqueue_media();
     wp_enqueue_style( 'snn-course-builder', $base . 'assets/css/snn-course-builder.css', [], $ver );
     wp_enqueue_script( 'snn-course-builder', $base . 'assets/js/snn-course-builder.js', [], $ver, true );
 

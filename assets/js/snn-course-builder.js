@@ -509,6 +509,7 @@
 				'<div class="snb-head-main">' +
 					'<a class="snb-back" href="' + esc( courseUrl( 0 ) ) + '" data-nav="list">← All courses</a>' +
 					'<div class="snb-title-row" data-id="' + course.id + '" data-kind="course">' +
+						'<button type="button" class="snb-course-thumb" data-action="panel" title="Course details and featured image">' + thumbPreview( course.thumb ) + '</button>' +
 						'<h2 class="snb-title"><span class="snb-name" title="Double-click to rename">' + esc( course.title || '(no title)' ) + '</span></h2>' +
 						statusSelect( course, 'course' ) +
 					'</div>' +
@@ -1383,6 +1384,17 @@
 						'<label class="snb-field"><span>Status</span>' + statusSelect( node, kind ).replace( 'class="snb-status', 'name="status" class="snb-status' ).replace( / data-status-for="\d+"/, '' ) + '</label>' +
 					'</div>' +
 					'<label class="snb-field"><span>Excerpt</span><textarea name="excerpt" rows="3">' + esc( node.excerpt ) + '</textarea></label>' +
+					'<div class="snb-field">' +
+						'<span>Featured image' + ( 'lesson' === kind ? ' <em class="snb-muted">(also the video poster)</em>' : '' ) + '</span>' +
+						'<div class="snb-thumb-field">' +
+							'<button type="button" class="snb-thumb-preview" data-panel="thumb-pick" aria-label="Choose featured image">' + thumbPreview( node.thumb ) + '</button>' +
+							'<div class="snb-thumb-actions">' +
+								'<button type="button" class="button" data-panel="thumb-pick">' + ( node.thumbnail_id ? 'Replace image' : 'Choose image' ) + '</button>' +
+								'<button type="button" class="button-link snb-thumb-remove" data-panel="thumb-remove"' + ( node.thumbnail_id ? '' : ' hidden' ) + '>Remove</button>' +
+							'</div>' +
+						'</div>' +
+						'<input type="hidden" name="thumbnail_id" value="' + ( node.thumbnail_id || 0 ) + '">' +
+					'</div>' +
 				'</section>' +
 				'<div class="snb-panel-fields"><p class="snb-loading">Loading fields…</p></div>' +
 			'</form>' +
@@ -1416,8 +1428,64 @@
 			closePanel();
 		} );
 		$( '[data-panel="save"]', panelEl ).addEventListener( 'click', savePanel );
+		$$( '[data-panel="thumb-pick"]', panelEl ).forEach( function ( button ) {
+			button.addEventListener( 'click', pickThumbnail );
+		} );
+		$( '[data-panel="thumb-remove"]', panelEl ).addEventListener( 'click', function () {
+			setThumbnail( 0, '' );
+		} );
 
 		$( '[name="title"]', panelEl ).focus();
+	}
+
+	function thumbPreview( url ) {
+		return url
+			? '<img src="' + esc( url ) + '" alt="">'
+			: '<span class="snb-thumb-empty">No image</span>';
+	}
+
+	/** Puts a picked (or removed) image into the panel form; saved with the rest. */
+	function setThumbnail( id, url ) {
+		if ( ! panelEl ) {
+			return;
+		}
+		$( '[name="thumbnail_id"]', panelEl ).value = id || 0;
+		$( '.snb-thumb-preview', panelEl ).innerHTML = thumbPreview( url );
+		$( '.snb-thumb-remove', panelEl ).hidden = ! id;
+		$( '.snb-thumb-actions [data-panel="thumb-pick"]', panelEl ).textContent = id ? 'Replace image' : 'Choose image';
+		markDirty();
+	}
+
+	var thumbFrame = null;
+
+	function pickThumbnail() {
+		if ( ! window.wp || ! window.wp.media ) {
+			toast( 'The WordPress media library is not available on this screen.', 'error' );
+			return;
+		}
+
+		if ( ! thumbFrame ) {
+			thumbFrame = window.wp.media( {
+				title: 'Featured image',
+				button: { text: 'Use as featured image' },
+				library: { type: 'image' },
+				multiple: false
+			} );
+			thumbFrame.on( 'select', function () {
+				var image = thumbFrame.state().get( 'selection' ).first().toJSON();
+				var sizes = image.sizes || {};
+				var url = ( sizes.medium && sizes.medium.url ) || image.url;
+				setThumbnail( image.id, url );
+			} );
+			// Preselect the current image so "Replace" opens where the author left off.
+			thumbFrame.on( 'open', function () {
+				var input = panelEl ? $( '[name="thumbnail_id"]', panelEl ) : null;
+				var current = input ? parseInt( input.value, 10 ) : 0;
+				thumbFrame.state().get( 'selection' ).reset( current ? [ window.wp.media.attachment( current ) ] : [] );
+			} );
+		}
+
+		thumbFrame.open();
 	}
 
 	function markDirty( event ) {
@@ -1501,6 +1569,10 @@
 				details[ key ] = value;
 			}
 		} );
+		var thumbnailId = parseInt( $( '[name="thumbnail_id"]', form ).value, 10 ) || 0;
+		if ( thumbnailId !== ( node.thumbnail_id || 0 ) ) {
+			details.thumbnail_id = thumbnailId;
+		}
 
 		button.disabled = true;
 		panelState( 'Saving…', 'is-busy' );
