@@ -40,34 +40,13 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
         return '<!-- snn_learn_course_chapter_lesson_list: could not resolve course_id (post_id=' . (int) $current_id . ', post_type=' . esc_html( get_post_type( $current_id ) ?: 'none' ) . ', course_post_type_setting=' . esc_html( snn_learn_get( 'course_post_type' ) ) . ') -->';
     }
 
-    $pt         = snn_learn_get( 'course_post_type' );
     $user_id    = get_current_user_id();
 
-    // Query 1: chapters = direct children of the course
-    $chapters = get_posts( [
-        'post_type'      => $pt,
-        'post_parent'    => $course_id,
-        'posts_per_page' => -1,
-        'orderby'        => 'menu_order',
-        'order'          => 'ASC',
-        'post_status'    => 'publish',
-    ] );
-
-    // Query 2: ALL lessons for ALL chapters in one query (eliminates N+1)
-    $lessons_by_chapter = [];
-    if ( ! empty( $chapters ) ) {
-        $all_lessons = get_posts( [
-            'post_type'       => $pt,
-            'post_parent__in' => wp_list_pluck( $chapters, 'ID' ),
-            'posts_per_page'  => -1,
-            'orderby'         => 'menu_order',
-            'order'           => 'ASC',
-            'post_status'     => 'publish',
-        ] );
-        foreach ( $all_lessons as $l ) {
-            $lessons_by_chapter[ $l->post_parent ][] = $l;
-        }
-    }
+    // Chapters and lessons come from the cached course structure; priming the
+    // post cache in one query keeps get_permalink() from querying per lesson.
+    $structure = snn_learn_course_structure( $course_id );
+    $chapters  = $structure['chapters'];
+    _prime_post_caches( array_merge( wp_list_pluck( $chapters, 'id' ), $structure['lesson_ids'] ), false, false );
 
     // Pre-fetch completed lesson IDs for current user via PHP
     $completed_ids = [];
@@ -86,23 +65,23 @@ add_shortcode( 'snn_learn_course_chapter_lesson_list', function ( $atts ) {
 
     foreach ( $chapters as $ch ) {
         echo '<div class="snn-chapter">';
-        echo '<span class="snn-chapter-title">' . esc_html( $ch->post_title ) . '</span>';
+        echo '<span class="snn-chapter-title">' . esc_html( $ch['title'] ) . '</span>';
 
-        $lessons = $lessons_by_chapter[ $ch->ID ] ?? [];
+        $lessons = $ch['lessons'];
 
         if ( $lessons ) {
             echo '<ul class="snn-lessons-list">';
             foreach ( $lessons as $l ) {
-                $is_current   = ( $l->ID === $current_id );
-                $is_completed = in_array( $l->ID, $completed_ids, true );
+                $is_current   = ( $l['id'] === (int) $current_id );
+                $is_completed = in_array( $l['id'], $completed_ids, true );
                 $cls          = 'snn-lesson-item';
                 if ( $is_current )   $cls .= ' snn-lesson-current';
                 if ( $is_completed ) $cls .= ' snn-lesson-completed';
 
                 echo '<li class="' . esc_attr( $cls ) . '">';
-                echo '<a class="snn-lesson-link" href="' . esc_url( get_permalink( $l->ID ) ) . '">';
+                echo '<a class="snn-lesson-link" href="' . esc_url( get_permalink( $l['id'] ) ) . '">';
                 if ( $is_completed ) echo '<span class="snn-lesson-check" aria-label="Completed">&#10003; </span>';
-                echo esc_html( $l->post_title );
+                echo esc_html( $l['title'] );
                 echo '</a>';
                 echo '</li>';
             }

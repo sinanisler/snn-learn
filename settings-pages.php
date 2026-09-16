@@ -22,7 +22,8 @@ function snn_learn_video_settings_page() {
 
     // ---- Save Handler ----
     if ( isset( $_POST['snn_learn_video_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['snn_learn_video_nonce'] ) ), 'snn_learn_video_save' ) ) {
-        $fields = [ 'course_post_type', 'video_field', 'video_color_primary', 'video_color_bg', 'video_color_text', 'video_complete_seconds' ];
+        // course_post_type is owned by the Course Fields screen.
+        $fields = [ 'video_field', 'video_color_primary', 'video_color_bg', 'video_color_text', 'video_complete_seconds' ];
         foreach ( $fields as $f ) {
             if ( isset( $_POST[ 'snn_learn_' . $f ] ) ) {
                 update_option( 'snn_learn_' . $f, sanitize_text_field( wp_unslash( $_POST[ 'snn_learn_' . $f ] ) ) );
@@ -51,15 +52,13 @@ function snn_learn_video_settings_page() {
                             <span class="snn-tip" data-tip="The single post type slug used for courses, chapters, and lessons. Role is determined by depth: top-level = course, child of course = chapter, child of chapter = lesson." style="cursor:help;color:#9ca3af;font-size:15px;line-height:1" title="More info">?</span>
                         </label>
                         <div style="display:flex;align-items:center;gap:8px">
-                            <input type="text" id="snn_cpt" name="snn_learn_course_post_type"
+                            <input type="text" id="snn_cpt"
                                 value="<?= esc_attr( snn_learn_get( 'course_post_type' ) ) ?>"
-                                class="regular-text snn-char-counter"
-                                maxlength="20"
+                                class="regular-text"
                                 style="width:220px"
-                                placeholder="course">
-                            <span class="snn-char-count" style="font-size:11px;color:#9ca3af" data-for="snn_cpt">0/20</span>
+                                readonly>
                         </div>
-                        <p style="margin:6px 0 0;font-size:12px;color:#6b7280">Single post type for courses, chapters, and lessons.</p>
+                        <p style="margin:6px 0 0;font-size:12px;color:#6b7280">Single post type for courses, chapters, and lessons. Change it on the <a href="<?= esc_url( admin_url( 'admin.php?page=snn-learn-course-fields' ) ) ?>">Course Fields</a> screen.</p>
                     </div>
 
                     <!-- Video URL Field -->

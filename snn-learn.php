@@ -14,6 +14,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 require_once plugin_dir_path( __FILE__ ) . 'page-orders.php';
 require_once plugin_dir_path( __FILE__ ) . 'media-library.php';
 require_once plugin_dir_path( __FILE__ ) . 'course-fields.php';
+require_once plugin_dir_path( __FILE__ ) . 'course-structure.php';
+require_once plugin_dir_path( __FILE__ ) . 'course-builder.php';
 
 // ============================================================
 // 1. DATABASE
@@ -121,6 +123,7 @@ add_action( 'admin_menu', function () {
         2
     );
     add_submenu_page( 'snn-learn', 'SNN Learn Dashboard',  'Dashboard',       'manage_options', 'snn-learn',                     'snn_learn_dashboard_page'           );
+    add_submenu_page( 'snn-learn', 'Course Builder',        'Course Builder',  'edit_others_posts', 'snn-learn-builder',         'snn_learn_builder_page'             );
     add_submenu_page( 'snn-learn', 'Media Library',         'Media Library',   'manage_options', 'snn-learn-media',               'snn_media_library_page'             );
     add_submenu_page( 'snn-learn', 'Course Fields',         'Course Fields',   'manage_options', 'snn-learn-course-fields',       'snn_cf_settings_page'               );
     add_submenu_page( 'snn-learn', 'Media Settings',        'Media Settings',  'manage_options', 'snn-learn-media-settings',      'snn_media_settings_page'            );
@@ -257,6 +260,8 @@ add_action( 'admin_head', function () {
     // The Media Library module ships its own stylesheet; Tailwind's preflight is
     // injected at runtime and would reset it, so skip those screens entirely.
     if ( strpos( $screen->id, 'snn-learn-media' ) !== false ) return;
+    // Same for the Course Builder, which ships its own stylesheet too.
+    if ( strpos( $screen->id, 'snn-learn-builder' ) !== false ) return;
     $js_url = plugin_dir_url( __FILE__ ) . 'assets/js/';
     ?>
     <script src="<?= esc_url( $js_url . 'tailwind.min.js' ) ?>"></script>
@@ -336,61 +341,11 @@ function snn_learn_get_course_id( $post_id = null ) {
 }
 
 /**
- * Return an array of all lesson post IDs for a course, ordered by chapter then lesson menu_order.
- * One post type. Chapters = direct children of the course. Lessons = children of chapters.
+ * Return an array of all published lesson post IDs for a course, ordered by chapter then lesson menu_order.
+ * Read from the cached course structure (course-structure.php), rebuilt whenever the course changes.
  */
 function snn_learn_get_course_lessons( $course_id ) {
-    static $cache = [];
-    $course_id = (int) $course_id;
-
-    if ( isset( $cache[ $course_id ] ) ) {
-        return $cache[ $course_id ];
-    }
-
-    $pt = snn_learn_get( 'course_post_type' );
-
-    // Query 1: get all chapter IDs (direct children of the course)
-    $chapters = get_posts( [
-        'post_type'      => $pt,
-        'post_parent'    => (int) $course_id,
-        'posts_per_page' => -1,
-        'orderby'        => 'menu_order',
-        'order'          => 'ASC',
-        'post_status'    => 'publish',
-        'fields'         => 'ids',
-    ] );
-
-    if ( empty( $chapters ) ) {
-        $cache[ $course_id ] = [];
-        return [];
-    }
-
-    // Query 2: get ALL lessons for ALL chapters in a single query (eliminates N+1)
-    $all_lessons = get_posts( [
-        'post_type'       => $pt,
-        'post_parent__in' => $chapters,
-        'posts_per_page'  => -1,
-        'orderby'         => 'menu_order',
-        'order'           => 'ASC',
-        'post_status'     => 'publish',
-    ] );
-
-    // Group lessons by their parent chapter
-    $lessons_by_chapter = [];
-    foreach ( $all_lessons as $lesson ) {
-        $lessons_by_chapter[ $lesson->post_parent ][] = (int) $lesson->ID;
-    }
-
-    // Assemble flat ordered list, chapters dictate master order
-    $ordered_lesson_ids = [];
-    foreach ( $chapters as $ch_id ) {
-        if ( isset( $lessons_by_chapter[ $ch_id ] ) ) {
-            $ordered_lesson_ids = array_merge( $ordered_lesson_ids, $lessons_by_chapter[ $ch_id ] );
-        }
-    }
-
-    $cache[ $course_id ] = $ordered_lesson_ids;
-    return $ordered_lesson_ids;
+    return snn_learn_course_structure( (int) $course_id )['lesson_ids'];
 }
 
 /**
@@ -782,38 +737,8 @@ if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() ==
 
 
 // ============================================================
-// 12. CHAPTER → FIRST LESSON REDIRECT
+// 12. CHAPTER → FIRST LESSON REDIRECT — moved to course-structure.php
 // ============================================================
-
-add_action( 'template_redirect', function () {
-    if ( ! is_singular() ) return;
-
-    $post = get_post();
-    $pt   = snn_learn_get( 'course_post_type' );
-
-    if ( ! $post || $post->post_type !== $pt ) return;
-
-    // A "chapter" has a parent (not top-level) whose parent is 0 (top-level = course).
-    if ( ! $post->post_parent ) return; // it's a course, skip
-    $parent = get_post( $post->post_parent );
-    if ( ! $parent || $parent->post_parent !== 0 ) return; // parent is not a course
-
-    // This is a chapter — redirect to its first lesson child
-    $first_lesson = get_posts( [
-        'post_type'      => $pt,
-        'post_parent'    => $post->ID,
-        'posts_per_page' => 1,
-        'orderby'        => 'menu_order',
-        'order'          => 'ASC',
-        'post_status'    => 'publish',
-        'fields'         => 'ids',
-    ] );
-
-    if ( $first_lesson ) {
-        wp_redirect( get_permalink( $first_lesson[0] ), 302 );
-        exit;
-    }
-} );
 
 // ============================================================
 // 13. COMMENT LIST SHORTCODE — moved to shortcodes.php

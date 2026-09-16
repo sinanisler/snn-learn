@@ -687,6 +687,12 @@
 			if ( typeSelect ) {
 				parts.push( typeSelect.options[ typeSelect.selectedIndex ].text );
 			}
+			var roles = $$( '.snn-cf-role-check:checked', editor ).map( function ( box ) {
+				return box.value;
+			} );
+			if ( roles.length ) {
+				parts.push( roles.join( '/' ) );
+			}
 			if ( flag( 'repeater' ) ) {
 				parts.push( 'repeater' );
 			}

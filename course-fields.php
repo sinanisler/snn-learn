@@ -20,6 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 const SNN_CF_FIELDS_OPTION = 'snn_learn_course_fields';
 const SNN_CF_CPT_OPTION    = 'snn_learn_course_cpt';
 const SNN_CF_ENABLED_OPTION = 'snn_learn_course_fields_enabled';
+const SNN_CF_SCHEMA_OPTION  = 'snn_learn_course_fields_schema';
 
 // ============================================================
 // 1. FIELD TYPES
@@ -66,6 +67,22 @@ function snn_cf_quick_edit_types() {
     return [ 'text', 'number', 'url', 'date', 'color', 'select', 'true_false', 'textarea', 'video', 'vtt', 'media' ];
 }
 
+/**
+ * The structural roles a field can be limited to.
+ *
+ * Courses, chapters and lessons share one post type, so the post type alone
+ * cannot tell a lesson's video field apart from a course's badge. A field with
+ * no roles picked shows everywhere, which keeps registries saved before roles
+ * existed behaving exactly as they did.
+ */
+function snn_cf_roles() {
+    return [
+        'course'  => 'Course',
+        'chapter' => 'Chapter',
+        'lesson'  => 'Lesson',
+    ];
+}
+
 // ============================================================
 // 2. DEFAULTS
 // ============================================================
@@ -90,6 +107,7 @@ function snn_cf_default_fields() {
             'width'      => $width,
             'type'       => $type,
             'post_types' => [ $cpt ],
+            'roles'      => [],
             'repeater'   => 0,
             'quick_edit' => 0,
             'return'     => 'url',
@@ -102,7 +120,10 @@ function snn_cf_default_fields() {
     };
 
     return [
-        $f( 'Course Fields', 'Chapters', 'chapters', 30, 'double_text', [
+        // The slug stays `chapters` because the video player reads it; the
+        // label says timestamps so it is not confused with structural chapters.
+        $f( 'Course Fields', 'Video Timestamps', 'chapters', 30, 'double_text', [
+            'roles'      => [ 'lesson' ],
             'repeater'   => 1,
             'help'       => 'Timestamp and chapter title, e.g. 00:45 | Setting up',
             'ai_enabled' => 1,
@@ -112,11 +133,12 @@ function snn_cf_default_fields() {
                 . 'Prefer fewer, meaningful chapters over many trivial ones.',
         ] ),
         $f( 'Course Fields', 'Subtitles', 'subtitles', 30, 'subtitles', [
+            'roles'    => [ 'lesson' ],
             'repeater' => 1,
             'help'     => 'Filled in automatically when you pick a video that already has a .vtt.',
         ] ),
-        $f( 'Course Fields', 'Video URL',    'video_url',    20, 'video', [ 'quick_edit' => 1 ] ),
-        $f( 'Course Fields', 'Video Length', 'video_length', 20, 'text',  [ 'quick_edit' => 1 ] ),
+        $f( 'Course Fields', 'Video URL',    'video_url',    20, 'video', [ 'roles' => [ 'lesson' ], 'quick_edit' => 1 ] ),
+        $f( 'Course Fields', 'Video Length', 'video_length', 20, 'text',  [ 'roles' => [ 'lesson' ], 'quick_edit' => 1 ] ),
         $f( 'Course Fields', 'Course Objectives', 'course_objectives', 30, 'textarea', [
             'repeater'   => 1,
             'help'       => 'What the learner can do after this lesson. One objective per row.',
@@ -126,6 +148,7 @@ function snn_cf_default_fields() {
                 . 'Start each objective with a verb. Keep each to one sentence. Cover only what the transcript actually teaches.',
         ] ),
         $f( 'Course Fields', 'FAQ', 'faq', 40, 'double_textarea', [
+            'roles'      => [ 'lesson' ],
             'repeater'   => 1,
             'help'       => 'Question and answer.',
             'ai_enabled' => 1,
@@ -134,12 +157,64 @@ function snn_cf_default_fields() {
                 . 'Column A is the question, column B is the answer in two or three sentences. '
                 . 'Answer only from what the transcript covers.',
         ] ),
-        $f( 'Course Fields', 'Free Preview',      'free_preview',      10, 'true_false' ),
-        $f( 'Course Fields', 'Badge Name',        'badge_name',        10, 'text',            [ 'quick_edit' => 1 ] ),
-        $f( 'Course Fields', 'Badge',             'badge',             10, 'media' ),
-        $f( 'Course Meta',   'Enrolled Posts',    'snn_edu_enrolled_posts',  30, 'textarea' ),
-        $f( 'Course Meta',   'Completed Posts',   'snn_edu_completed_posts', 25, 'textarea' ),
+        $f( 'Course Fields', 'Free Preview',      'free_preview',      10, 'true_false', [ 'roles' => [ 'lesson' ] ] ),
+        $f( 'Course Fields', 'Badge Name',        'badge_name',        10, 'text',       [ 'roles' => [ 'course' ], 'quick_edit' => 1 ] ),
+        $f( 'Course Fields', 'Badge',             'badge',             10, 'media',      [ 'roles' => [ 'course' ] ] ),
     ];
+}
+
+/**
+ * Brings a registry saved by an older version up to date, once.
+ *
+ * Touches only the shipped default slugs, and only where the saved row has no
+ * roles yet, so anything the admin customised is left alone:
+ *   - drops the legacy `snn_edu_*` textareas (progress lives in the enrollments table)
+ *   - relabels `chapters` to "Video Timestamps" when it still has the old label
+ *   - assigns the default roles to the default slugs
+ */
+add_action( 'admin_init', 'snn_cf_migrate_registry' );
+function snn_cf_migrate_registry() {
+    if ( (int) get_option( SNN_CF_SCHEMA_OPTION, 0 ) >= 2 ) {
+        return;
+    }
+
+    $saved = get_option( SNN_CF_FIELDS_OPTION, null );
+
+    if ( is_array( $saved ) ) {
+        $default_roles = [
+            'chapters'     => [ 'lesson' ],
+            'subtitles'    => [ 'lesson' ],
+            'video_url'    => [ 'lesson' ],
+            'video_length' => [ 'lesson' ],
+            'faq'          => [ 'lesson' ],
+            'free_preview' => [ 'lesson' ],
+            'badge_name'   => [ 'course' ],
+            'badge'        => [ 'course' ],
+        ];
+
+        $out = [];
+        foreach ( $saved as $field ) {
+            if ( ! is_array( $field ) ) {
+                continue;
+            }
+            $slug = $field['slug'] ?? '';
+
+            if ( in_array( $slug, [ 'snn_edu_enrolled_posts', 'snn_edu_completed_posts' ], true ) ) {
+                continue;
+            }
+            if ( 'chapters' === $slug && 'Chapters' === ( $field['label'] ?? '' ) ) {
+                $field['label'] = 'Video Timestamps';
+            }
+            if ( ! array_key_exists( 'roles', $field ) && isset( $default_roles[ $slug ] ) ) {
+                $field['roles'] = $default_roles[ $slug ];
+            }
+            $out[] = $field;
+        }
+
+        snn_cf_save_fields( $out );
+    }
+
+    update_option( SNN_CF_SCHEMA_OPTION, 2 );
 }
 
 /** Post type registration settings. */
@@ -219,17 +294,32 @@ function snn_cf_flush_cache() {
     $snn_cf_registry_cache = null;
 }
 
-/** Fields attached to one post type, in registration order. */
-function snn_cf_fields_for( $post_type ) {
-    return array_values( array_filter( snn_cf_get_fields(), function ( $field ) use ( $post_type ) {
-        return in_array( $post_type, (array) $field['post_types'], true );
+/**
+ * Fields attached to one post type, in registration order.
+ *
+ * With a post, fields limited to other roles are dropped too: a course only
+ * gets course fields, a lesson only lesson fields. Without a post (settings,
+ * saving, quick edit wiring) every field of the post type is returned.
+ */
+function snn_cf_fields_for( $post_type, $post = null ) {
+    $role = '';
+    // A brand-new post has no parent picked yet, so its role is unknown: show everything.
+    if ( $post && 'auto-draft' !== get_post_status( $post ) && $post_type === snn_cf_cpt_slug() && function_exists( 'snn_learn_post_role' ) ) {
+        $role = snn_learn_post_role( $post );
+    }
+
+    return array_values( array_filter( snn_cf_get_fields(), function ( $field ) use ( $post_type, $role ) {
+        if ( ! in_array( $post_type, (array) $field['post_types'], true ) ) {
+            return false;
+        }
+        return '' === $role || ! $field['roles'] || in_array( $role, $field['roles'], true );
     } ) );
 }
 
-/** Fields attached to one post type, bucketed by group name. */
-function snn_cf_groups_for( $post_type ) {
+/** Fields attached to one post type (and role, given a post), bucketed by group name. */
+function snn_cf_groups_for( $post_type, $post = null ) {
     $groups = [];
-    foreach ( snn_cf_fields_for( $post_type ) as $field ) {
+    foreach ( snn_cf_fields_for( $post_type, $post ) as $field ) {
         $name = $field['group'] !== '' ? $field['group'] : 'Fields';
         $groups[ $name ][] = $field;
     }
@@ -262,6 +352,10 @@ function snn_cf_sanitize_field( $raw ) {
         'width'      => $width,
         'type'       => $type,
         'post_types' => $post_types,
+        'roles'      => array_values( array_intersect(
+            array_map( 'sanitize_key', (array) ( $raw['roles'] ?? [] ) ),
+            array_keys( snn_cf_roles() )
+        ) ),
         'repeater'   => empty( $raw['repeater'] ) ? 0 : 1,
         'quick_edit' => empty( $raw['quick_edit'] ) ? 0 : 1,
         'return'     => ( ( $raw['return'] ?? 'url' ) === 'id' ) ? 'id' : 'url',
@@ -515,12 +609,12 @@ function snn_cf_value_rows( $field, $stored ) {
 // 6. META BOXES
 // ============================================================
 
-add_action( 'add_meta_boxes', function ( $post_type ) {
+add_action( 'add_meta_boxes', function ( $post_type, $post = null ) {
     if ( ! snn_cf_enabled() ) {
         return;
     }
 
-    foreach ( snn_cf_groups_for( $post_type ) as $group_name => $fields ) {
+    foreach ( snn_cf_groups_for( $post_type, $post instanceof WP_Post ? $post : null ) as $group_name => $fields ) {
         add_meta_box(
             'snn_cf_' . md5( $group_name ),
             $group_name,
@@ -531,7 +625,7 @@ add_action( 'add_meta_boxes', function ( $post_type ) {
             [ 'fields' => $fields ]
         );
     }
-}, 10, 1 );
+}, 10, 2 );
 
 function snn_cf_render_meta_box( $post, $box ) {
     static $nonce_done = false;
@@ -779,11 +873,31 @@ function snn_cf_save_post( $post_id, $post ) {
         return;
     }
 
-    // Only fields whose editor was actually on the screen may be written.
-    $present = array_map( 'sanitize_key', (array) ( $_POST['snn_cf_present'] ?? [] ) );
-    $posted  = isset( $_POST['snn_cf'] ) && is_array( $_POST['snn_cf'] ) ? wp_unslash( $_POST['snn_cf'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- each value is sanitized per field type below.
+    $posted = isset( $_POST['snn_cf'] ) && is_array( $_POST['snn_cf'] ) ? wp_unslash( $_POST['snn_cf'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- each value is sanitized per field type in snn_cf_write_values().
 
-    foreach ( snn_cf_fields_for( $post->post_type ) as $field ) {
+    snn_cf_write_values(
+        $post_id,
+        snn_cf_fields_for( $post->post_type ),
+        (array) ( $_POST['snn_cf_present'] ?? [] ),
+        $posted
+    );
+}
+
+/**
+ * Writes submitted field values to post meta.
+ *
+ * Shared by the post editor and the Course Builder side panel. Only fields
+ * whose editor was actually on the screen ($present) may be written, so a
+ * field that was not drawn is never blanked.
+ *
+ * @param array $fields  Candidate field definitions.
+ * @param array $present Slugs that were rendered in the submitted form.
+ * @param array $posted  The raw, unslashed snn_cf[...] values.
+ */
+function snn_cf_write_values( $post_id, array $fields, array $present, array $posted ) {
+    $present = array_map( 'sanitize_key', $present );
+
+    foreach ( $fields as $field ) {
         if ( ! in_array( $field['slug'], $present, true ) ) {
             continue;
         }
@@ -830,8 +944,12 @@ function snn_cf_quick_edit_column_content( $column, $post_id ) {
         return;
     }
 
-    $values = [];
+    $values  = [];
+    $allowed = wp_list_pluck( snn_cf_fields_for( get_post_type( $post_id ), get_post( $post_id ) ), 'slug' );
     foreach ( snn_cf_quick_edit_fields( get_post_type( $post_id ) ) as $field ) {
+        if ( ! in_array( $field['slug'], $allowed, true ) ) {
+            continue;
+        }
         $values[ $field['slug'] ] = (string) get_post_meta( $post_id, $field['slug'], true );
     }
 
@@ -893,8 +1011,11 @@ add_action( 'save_post', function ( $post_id, $post ) {
     $present = array_map( 'sanitize_key', (array) ( $_POST['snn_cf_present'] ?? [] ) );
     $posted  = isset( $_POST['snn_cf'] ) && is_array( $_POST['snn_cf'] ) ? wp_unslash( $_POST['snn_cf'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per field type below.
 
+    // A course row carries no lesson fields, so its Quick Edit must not blank them.
+    $allowed = wp_list_pluck( snn_cf_fields_for( $post->post_type, $post ), 'slug' );
+
     foreach ( snn_cf_quick_edit_fields( $post->post_type ) as $field ) {
-        if ( ! in_array( $field['slug'], $present, true ) ) {
+        if ( ! in_array( $field['slug'], $present, true ) || ! in_array( $field['slug'], $allowed, true ) ) {
             continue;
         }
 
@@ -945,13 +1066,15 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
     $is_editor = in_array( $hook, [ 'post.php', 'post-new.php' ], true );
     $is_list   = 'edit.php' === $hook;
     $is_setup  = false !== strpos( (string) $hook, 'snn-learn-course-fields' );
+    // The Course Builder side panel draws the same field editors.
+    $is_builder = false !== strpos( (string) $hook, 'snn-learn-builder' );
 
-    if ( ! $is_setup && ! ( snn_cf_enabled() && ( $is_editor || $is_list ) ) ) {
+    if ( ! $is_setup && ! ( snn_cf_enabled() && ( $is_editor || $is_list || $is_builder ) ) ) {
         return;
     }
 
     // On post screens, load only where this post type actually has fields.
-    if ( ! $is_setup && $screen && ! snn_cf_fields_for( $screen->post_type ) ) {
+    if ( ! $is_setup && ! $is_builder && $screen && ! snn_cf_fields_for( $screen->post_type ) ) {
         return;
     }
 
@@ -961,14 +1084,14 @@ add_action( 'admin_enqueue_scripts', function ( $hook ) {
     wp_enqueue_style( 'snn-course-fields', $base . 'assets/css/snn-course-fields.css', [], $ver );
     wp_enqueue_script( 'snn-course-fields', $base . 'assets/js/snn-course-fields.js', [], $ver, true );
     $config = snn_cf_js_config(
-        $screen ? $screen->post_type : '',
+        $is_builder ? snn_cf_cpt_slug() : ( $screen ? $screen->post_type : '' ),
         $is_editor ? (int) get_the_ID() : 0
     );
     wp_add_inline_script( 'snn-course-fields', 'window.SNN_CF = ' . wp_json_encode( $config ) . ';', 'before' );
 
     // The WordPress media modal backs the "Media (WordPress)" field type, in
     // the editor and in Quick Edit alike.
-    if ( $is_editor || $is_list ) {
+    if ( $is_editor || $is_list || $is_builder ) {
         wp_enqueue_media();
     }
 } );
@@ -1348,6 +1471,12 @@ function snn_cf_field_editor_summary( $field, $types ) {
 
     $parts[] = $types[ $field['type'] ]['label'] ?? $field['type'];
 
+    if ( $field['roles'] ) {
+        $parts[] = implode( '/', array_map( function ( $role ) {
+            return strtolower( snn_cf_roles()[ $role ] ?? $role );
+        }, $field['roles'] ) );
+    }
+
     if ( $field['repeater'] ) {
         $parts[] = 'repeater';
     }
@@ -1414,6 +1543,18 @@ function snn_cf_render_field_editor( $index, $field, $types, $targets ) {
                             <input type="checkbox" name="<?= esc_attr( $name ) ?>[post_types][]" value="<?= esc_attr( $pt ) ?>"
                                 <?= checked( true, in_array( $pt, (array) $field['post_types'], true ), false ) ?>>
                             <?= esc_html( $pt_label ) ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <div class="snn-cf-col" style="flex-basis:100%">
+                <label>Show On <span class="snn-cf-note-inline">course post type only &mdash; leave all unchecked to show on courses, chapters and lessons</span></label>
+                <div class="snn-cf-checks snn-cf-checks-tight">
+                    <?php foreach ( snn_cf_roles() as $role => $role_label ) : ?>
+                        <label>
+                            <input type="checkbox" class="snn-cf-role-check" name="<?= esc_attr( $name ) ?>[roles][]" value="<?= esc_attr( $role ) ?>"
+                                <?= checked( true, in_array( $role, (array) $field['roles'], true ), false ) ?>>
+                            <?= esc_html( $role_label ) ?>
                         </label>
                     <?php endforeach; ?>
                 </div>

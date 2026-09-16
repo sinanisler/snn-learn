@@ -5,34 +5,175 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // ============================================================
 // BRICKS BUILDER DYNAMIC TAGS
-// Registers {snn_learn_progress}, {snn_learn_progress:bool},
-// {snn_learn_completed_date}, and
-// {current_user_current_course_certificate_hash}
 // Only loaded when the Bricks theme is active (checked in snn-learn.php).
+//
+// Progress & completion
+//   {snn_learn_progress}                           0–100 for the current user
+//   {snn_learn_progress:bool}                      "true" once past 1%
+//   {snn_learn_completed_date}                     date of the latest completed lesson
+//   {current_user_current_course_certificate_hash} certificate hash
+//
+// Structure (all resolve the course from any course / chapter / lesson)
+//   {snn_learn_type}               course | chapter | lesson
+//   {snn_learn_course_id}          the course ID
+//   {snn_learn_course_url}         the course landing page URL
+//   {snn_learn_chapter_count}      published chapters
+//   {snn_learn_lesson_count}       published lessons
+//   {snn_learn_duration}           total length, "2h 15m"
+//   {snn_learn_duration:clock}     total length, "2:15:03"
+//   {snn_learn_duration:seconds}   total length in seconds
+//   {snn_learn_lesson_duration}    this lesson's length, "12m" (also :clock / :seconds)
+//   {snn_learn_modified}           newest modified date across the course and its children
+//
+// Navigation
+//   {snn_learn_start_url}          first lesson
+//   {snn_learn_resume_url}         next unfinished lesson for the current user
+//   {snn_learn_certificate_url}    certificate page URL for the current user
 // ============================================================
+
+/**
+ * Every SNN Learn tag: name => [ label, callback( $post_id, $arg ) ].
+ * The callback receives the post the tag renders for and the text after ":".
+ */
+function snn_learn_bricks_tags() {
+    $course = function ( $post_id ) {
+        return snn_learn_get_course_id( $post_id );
+    };
+
+    $format_duration = function ( $seconds, $arg ) {
+        if ( 'seconds' === $arg ) {
+            return (string) (int) $seconds;
+        }
+        return snn_learn_format_duration( $seconds, 'clock' === $arg ? 'clock' : 'short' );
+    };
+
+    return [
+        'snn_learn_progress' => [
+            'label'    => 'Course Progress (%)',
+            'callback' => function ( $post_id, $arg ) {
+                return snn_learn_bricks_get_progress_value( 'bool' === $arg ? 'snn_learn_progress:bool' : 'snn_learn_progress', $post_id );
+            },
+            'variants' => [ 'bool' => 'Course Progress (bool)' ],
+        ],
+        'snn_learn_completed_date' => [
+            'label'    => 'Last Completed Lesson Date',
+            'callback' => function ( $post_id ) {
+                return snn_learn_bricks_get_completed_date( $post_id );
+            },
+        ],
+        'current_user_current_course_certificate_hash' => [
+            'label'    => 'Course Certificate Hash',
+            'callback' => function ( $post_id ) {
+                return snn_learn_bricks_get_certificate_hash( $post_id );
+            },
+        ],
+        'snn_learn_type' => [
+            'label'    => 'Structure Type (course / chapter / lesson)',
+            'callback' => function ( $post_id ) {
+                return snn_learn_post_role( $post_id );
+            },
+        ],
+        'snn_learn_course_id' => [
+            'label'    => 'Course ID',
+            'callback' => function ( $post_id ) use ( $course ) {
+                return (string) $course( $post_id );
+            },
+        ],
+        'snn_learn_course_url' => [
+            'label'    => 'Course URL',
+            'callback' => function ( $post_id ) use ( $course ) {
+                $id = $course( $post_id );
+                return $id ? (string) get_permalink( $id ) : '';
+            },
+        ],
+        'snn_learn_chapter_count' => [
+            'label'    => 'Chapter Count',
+            'callback' => function ( $post_id ) use ( $course ) {
+                $id = $course( $post_id );
+                return $id ? (string) snn_learn_course_structure( $id )['chapter_count'] : '0';
+            },
+        ],
+        'snn_learn_lesson_count' => [
+            'label'    => 'Lesson Count',
+            'callback' => function ( $post_id ) use ( $course ) {
+                $id = $course( $post_id );
+                return $id ? (string) snn_learn_course_structure( $id )['lesson_count'] : '0';
+            },
+        ],
+        'snn_learn_duration' => [
+            'label'    => 'Course Duration',
+            'callback' => function ( $post_id, $arg ) use ( $course, $format_duration ) {
+                $id = $course( $post_id );
+                return $id ? $format_duration( snn_learn_course_structure( $id )['duration'], $arg ) : '';
+            },
+            'variants' => [ 'clock' => 'Course Duration (h:mm:ss)', 'seconds' => 'Course Duration (seconds)' ],
+        ],
+        'snn_learn_lesson_duration' => [
+            'label'    => 'Lesson Duration',
+            'callback' => function ( $post_id, $arg ) use ( $format_duration ) {
+                return 'lesson' === snn_learn_post_role( $post_id )
+                    ? $format_duration( snn_learn_lesson_duration( $post_id ), $arg )
+                    : '';
+            },
+            'variants' => [ 'clock' => 'Lesson Duration (m:ss)' ],
+        ],
+        'snn_learn_modified' => [
+            'label'    => 'Course Last Updated (incl. lessons)',
+            'callback' => function ( $post_id ) use ( $course ) {
+                $id = $course( $post_id );
+                $ts = $id ? snn_learn_course_structure( $id )['modified'] : 0;
+                return $ts ? wp_date( get_option( 'date_format' ), $ts ) : '';
+            },
+        ],
+        'snn_learn_start_url' => [
+            'label'    => 'Start Course URL (first lesson)',
+            'callback' => function ( $post_id ) use ( $course ) {
+                $id = $course( $post_id );
+                return $id ? (string) snn_learn_course_start_url( $id ) : '';
+            },
+        ],
+        'snn_learn_resume_url' => [
+            'label'    => 'Continue Learning URL (next unfinished lesson)',
+            'callback' => function ( $post_id ) use ( $course ) {
+                $id = $course( $post_id );
+                return $id ? (string) snn_learn_course_resume_url( $id ) : '';
+            },
+        ],
+        'snn_learn_certificate_url' => [
+            'label'    => 'Certificate URL',
+            'callback' => function ( $post_id ) use ( $course ) {
+                $id = $course( $post_id );
+                return $id ? snn_learn_certificate_url( $id ) : '';
+            },
+        ],
+    ];
+}
+
+/** Resolves "{name}" or "{name:arg}" to a value, or null when it is not ours. */
+function snn_learn_bricks_resolve( $clean, $post ) {
+    $parts = explode( ':', $clean, 2 );
+    $tags  = snn_learn_bricks_tags();
+
+    if ( ! isset( $tags[ $parts[0] ] ) ) {
+        return null;
+    }
+
+    $post_id = is_object( $post ) ? (int) $post->ID : (int) $post;
+    if ( ! $post_id ) {
+        $post_id = (int) get_the_ID();
+    }
+
+    return (string) call_user_func( $tags[ $parts[0] ]['callback'], $post_id, $parts[1] ?? '' );
+}
 
 // Step 1: Register tags in the Bricks builder UI
 add_filter( 'bricks/dynamic_tags_list', function ( $tags ) {
-    $tags[] = [
-        'name'  => '{snn_learn_progress}',
-        'label' => 'Course Progress (%)',
-        'group' => 'SNN Learn',
-    ];
-    $tags[] = [
-        'name'  => '{snn_learn_progress:bool}',
-        'label' => 'Course Progress (bool)',
-        'group' => 'SNN Learn',
-    ];
-    $tags[] = [
-        'name'  => '{snn_learn_completed_date}',
-        'label' => 'Last Completed Lesson Date',
-        'group' => 'SNN Learn',
-    ];
-    $tags[] = [
-        'name'  => '{current_user_current_course_certificate_hash}',
-        'label' => 'Course Certificate Hash',
-        'group' => 'SNN Learn',
-    ];
+    foreach ( snn_learn_bricks_tags() as $name => $def ) {
+        $tags[] = [ 'name' => '{' . $name . '}', 'label' => $def['label'], 'group' => 'SNN Learn' ];
+        foreach ( $def['variants'] ?? [] as $arg => $label ) {
+            $tags[] = [ 'name' => '{' . $name . ':' . $arg . '}', 'label' => $label, 'group' => 'SNN Learn' ];
+        }
+    }
     return $tags;
 } );
 
@@ -43,58 +184,23 @@ function snn_learn_bricks_render_tag( $tag, $post, $context = 'text' ) {
         return $tag;
     }
 
-    $clean = str_replace( [ '{', '}' ], '', $tag );
+    $value = snn_learn_bricks_resolve( trim( $tag, '{}' ), $post );
 
-    if ( $clean === 'snn_learn_completed_date' ) {
-        return snn_learn_bricks_get_completed_date( $post );
-    }
-
-    if ( $clean === 'current_user_current_course_certificate_hash' ) {
-        return snn_learn_bricks_get_certificate_hash( $post );
-    }
-
-    if ( $clean !== 'snn_learn_progress' && $clean !== 'snn_learn_progress:bool' ) {
-        return $tag;
-    }
-
-    return snn_learn_bricks_get_progress_value( $clean, $post );
+    return null === $value ? $tag : $value;
 }
 
 // Step 2b: Replace tags inside larger content strings
 add_filter( 'bricks/dynamic_data/render_content', 'snn_learn_bricks_render_content', 20, 3 );
 add_filter( 'bricks/frontend/render_data',        'snn_learn_bricks_render_content', 20, 2 );
 function snn_learn_bricks_render_content( $content, $post, $context = 'text' ) {
-    $has_progress = strpos( $content, '{snn_learn_progress' ) !== false;
-    $has_date     = strpos( $content, '{snn_learn_completed_date}' ) !== false;
-    $has_cert     = strpos( $content, '{current_user_current_course_certificate_hash}' ) !== false;
-
-    if ( ! $has_progress && ! $has_date && ! $has_cert ) {
+    if ( ! is_string( $content ) || ( false === strpos( $content, '{snn_learn_' ) && false === strpos( $content, '{current_user_current_course_certificate_hash' ) ) ) {
         return $content;
     }
 
-    if ( $has_progress ) {
-        // Match {snn_learn_progress} and {snn_learn_progress:bool}
-        preg_match_all( '/\{(snn_learn_progress(?::bool)?)\}/', $content, $matches );
-
-        if ( ! empty( $matches[0] ) ) {
-            foreach ( $matches[1] as $key => $clean_tag ) {
-                $value   = snn_learn_bricks_get_progress_value( $clean_tag, $post );
-                $content = str_replace( $matches[0][ $key ], $value, $content );
-            }
-        }
-    }
-
-    if ( $has_date ) {
-        $value   = snn_learn_bricks_get_completed_date( $post );
-        $content = str_replace( '{snn_learn_completed_date}', $value, $content );
-    }
-
-    if ( $has_cert ) {
-        $value   = snn_learn_bricks_get_certificate_hash( $post );
-        $content = str_replace( '{current_user_current_course_certificate_hash}', $value, $content );
-    }
-
-    return $content;
+    return preg_replace_callback( '/\{((?:snn_learn_[a-z_]+|current_user_current_course_certificate_hash)(?::[a-z0-9_]+)?)\}/', function ( $m ) use ( $post ) {
+        $value = snn_learn_bricks_resolve( $m[1], $post );
+        return null === $value ? $m[0] : $value;
+    }, $content );
 }
 
 // Shared logic: resolve progress value for the current user / post
