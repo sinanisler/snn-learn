@@ -24,6 +24,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 //   {snn_learn_duration:seconds}   total length in seconds
 //   {snn_learn_lesson_duration}    this lesson's length, "12m" (also :clock / :seconds)
 //   {snn_learn_modified}           newest modified date across the course and its children
+//   {snn_learn_objectives}         this post's Course Objectives as a <ul> list
+//   {snn_learn_objectives:count}   number of objectives
 //
 // Navigation
 //   {snn_learn_start_url}          first lesson
@@ -125,6 +127,13 @@ function snn_learn_bricks_tags() {
                 return $ts ? wp_date( get_option( 'date_format' ), $ts ) : '';
             },
         ],
+        'snn_learn_objectives' => [
+            'label'    => 'Course Objectives (list)',
+            'callback' => function ( $post_id, $arg ) {
+                return snn_learn_bricks_get_objectives( $post_id, $arg );
+            },
+            'variants' => [ 'count' => 'Course Objectives (count)' ],
+        ],
         'snn_learn_start_url' => [
             'label'    => 'Start Course URL (first lesson)',
             'callback' => function ( $post_id ) use ( $course ) {
@@ -201,6 +210,33 @@ function snn_learn_bricks_render_content( $content, $post, $context = 'text' ) {
         $value = snn_learn_bricks_resolve( $m[1], $post );
         return null === $value ? $m[0] : $value;
     }, $content );
+}
+
+// Renders the `course_objectives` repeater (an array of strings) as a list.
+// Each row's first line becomes the bold title; the remaining lines its text.
+function snn_learn_bricks_get_objectives( $post_id, $arg = '' ) {
+    $rows = array_values( array_filter( array_map( 'trim', (array) get_post_meta( $post_id, 'course_objectives', true ) ), 'strlen' ) );
+
+    if ( 'count' === $arg ) {
+        return (string) count( $rows );
+    }
+    if ( ! $rows ) {
+        return '';
+    }
+
+    $html = '<ul class="snn-learn-objectives">';
+    foreach ( $rows as $row ) {
+        $lines = preg_split( '/\R/', $row, 2 );
+        $html .= '<li>';
+        if ( isset( $lines[1] ) && '' !== trim( $lines[1] ) ) {
+            $html .= '<strong>' . esc_html( $lines[0] ) . '</strong><br>' . nl2br( esc_html( trim( $lines[1] ) ) );
+        } else {
+            $html .= esc_html( $lines[0] );
+        }
+        $html .= '</li>';
+    }
+
+    return $html . '</ul>';
 }
 
 // Shared logic: resolve progress value for the current user / post
