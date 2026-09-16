@@ -122,17 +122,56 @@
 	font-weight: 600;
 	color: var(--snb-warn);
 }
-.snb-warnings ul {
-	margin: 8px 0 2px;
-	padding-left: 18px;
-	list-style: disc;
+.snb-warning-group { margin: 10px 0 4px; }
+.snb-warning-group + .snb-warning-group {
+	padding-top: 10px;
+	border-top: 1px solid #f0d9a6;
 }
-.snb-warnings li { margin: 3px 0; }
-.snb-warnings .button-link {
+.snb-warning-title {
+	margin: 0 0 6px;
+	font-weight: 600;
+	color: #3c434a;
+}
+.snb-warnings ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.snb-warning-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	padding: 3px 0;
+}
+.snb-warning-item .button-small { flex: 0 0 auto; }
+.snb-warnings .snb-warning-link {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
 	text-align: left;
 	color: #3c434a;
+	text-decoration: none;
+}
+.snb-warning-link .snb-num { min-width: 30px; }
+.snb-warning-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	text-decoration: underline;
 	text-decoration-color: #c9a55a;
+}
+.snb-warning-link:hover .snb-warning-label { color: var(--snb-accent); text-decoration-color: currentColor; }
+.snb-warning-note {
+	flex: 0 0 auto;
+	font-size: 12px;
+	color: var(--snb-warn);
+}
+.snb-warning-more > summary {
+	margin: 4px 0 2px 36px;
+	font-weight: 400;
+	color: var(--snb-accent);
 }
 
 /* ---------- Course cards ---------- */

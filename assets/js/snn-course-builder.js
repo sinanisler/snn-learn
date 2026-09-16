@@ -35,6 +35,8 @@
 		search: '',
 		course: null,
 		collapsed: {},
+		warningsOpen: null,
+		warningsMore: {},
 		undo: [],
 		focus: C.initialFocus || 0,
 		newStatus: readPref( 'snb-new-status', 'draft' )
@@ -349,40 +351,98 @@
 		return null;
 	}
 
+	/**
+	 * Problems in the course, grouped by kind. Each group explains the problem
+	 * once and lists every affected item on its own, so each one can be jumped
+	 * to (and, where it helps, fixed) directly.
+	 *
+	 * [ { text, items: [ { id, num, label, fix } ] } ]
+	 */
 	function warnings( course ) {
-		var out = [];
+		var empty = [];
+		var hidden = [];
 		var noVideo = [];
 
-		course.chapters.forEach( function ( ch ) {
+		course.chapters.forEach( function ( ch, ci ) {
+			var num = String( ci + 1 );
+
 			if ( ! ch.lessons.length ) {
-				out.push( { id: ch.id, text: '“' + ch.title + '” has no lessons. Visitors opening it are sent back to the course page.' } );
+				empty.push( { id: ch.id, num: num, label: ch.title } );
 			}
 
-			var hidden = ch.lessons.filter( function ( l ) {
+			var published = ch.lessons.filter( function ( l ) {
 				return 'publish' === l.status;
 			} ).length;
-			if ( 'publish' !== ch.status && hidden ) {
-				out.push( { id: ch.id, text: '“' + ch.title + '” is ' + ( STATUS[ ch.status ] || ch.status ).toLowerCase() + ', so its ' + plural( hidden, 'published lesson is', 'published lessons are' ) + ' hidden from learners.' } );
+			if ( 'publish' !== ch.status && published ) {
+				hidden.push( {
+					id: ch.id,
+					num: num,
+					label: ch.title,
+					note: ( STATUS[ ch.status ] || ch.status ).toLowerCase() + ' · hides ' + plural( published, 'lesson', 'lessons' )
+				} );
 			}
 
-			ch.lessons.forEach( function ( l ) {
+			ch.lessons.forEach( function ( l, li ) {
 				if ( 'publish' === l.status && ! l.has_video ) {
-					noVideo.push( l );
+					noVideo.push( { id: l.id, num: num + '.' + ( li + 1 ), label: l.title, fix: 'Add video' } );
 				}
 			} );
 		} );
 
+		var out = [];
 		if ( noVideo.length ) {
-			out.push( { id: noVideo[ 0 ].id, text: plural( noVideo.length, 'published lesson has', 'published lessons have' ) + ' no video: ' + noVideo.slice( 0, 3 ).map( function ( l ) {
-				return '“' + l.title + '”';
-			} ).join( ', ' ) + ( noVideo.length > 3 ? '…' : '' ) } );
+			out.push( { key: 'video', text: plural( noVideo.length, 'published lesson has', 'published lessons have' ) + ' no video', items: noVideo } );
 		}
-
+		if ( hidden.length ) {
+			out.push( { key: 'hidden', text: plural( hidden.length, 'unpublished chapter hides', 'unpublished chapters hide' ) + ' published lessons from learners', items: hidden } );
+		}
+		if ( empty.length ) {
+			out.push( { key: 'empty', text: plural( empty.length, 'chapter has', 'chapters have' ) + ' no lessons — visitors opening it are sent back to the course page', items: empty } );
+		}
 		if ( course.too_deep ) {
-			out.push( { id: 0, text: plural( course.too_deep, 'item is', 'items are' ) + ' nested below a lesson and invisible to learners. Move them from the WordPress list (“Chapters & lessons too”).' } );
+			out.push( { key: 'deep', text: plural( course.too_deep, 'item is', 'items are' ) + ' nested below a lesson and invisible to learners. Move them from the WordPress list (“Chapters & lessons too”).', items: [] } );
 		}
 
 		return out;
+	}
+
+	function warningsBlock( groups ) {
+		if ( ! groups.length ) {
+			return '';
+		}
+
+		var total = groups.reduce( function ( sum, g ) {
+			return sum + Math.max( 1, g.items.length );
+		}, 0 );
+		var LIMIT = 6;
+
+		function item( it ) {
+			return '<li class="snb-warning-item">' +
+				'<button type="button" class="button-link snb-warning-link" data-focus="' + it.id + '" title="Show in the tree">' +
+					'<span class="snb-num">' + esc( it.num ) + '</span>' +
+					'<span class="snb-warning-label">' + esc( it.label || '(no title)' ) + '</span>' +
+				'</button>' +
+				( it.note ? '<span class="snb-warning-note">' + esc( it.note ) + '</span>' : '' ) +
+				( it.fix ? '<button type="button" class="button button-small" data-open-panel="' + it.id + '">' + esc( it.fix ) + '</button>' : '' ) +
+			'</li>';
+		}
+
+		var open = null === state.warningsOpen ? total <= 8 : state.warningsOpen;
+
+		return '<details class="snb-warnings"' + ( open ? ' open' : '' ) + '>' +
+			'<summary>' + plural( total, 'thing needs', 'things need' ) + ' attention</summary>' +
+			groups.map( function ( g ) {
+				var shown = g.items.slice( 0, LIMIT );
+				var rest = g.items.slice( LIMIT );
+				return '<div class="snb-warning-group">' +
+					'<p class="snb-warning-title">' + esc( g.text ) + '</p>' +
+					( shown.length ? '<ul>' + shown.map( item ).join( '' ) + '</ul>' : '' ) +
+					( rest.length
+						? '<details class="snb-warning-more" data-group="' + g.key + '"' + ( state.warningsMore[ g.key ] ? ' open' : '' ) + '><summary>Show ' + rest.length + ' more</summary><ul>' + rest.map( item ).join( '' ) + '</ul></details>'
+						: '' ) +
+				'</div>';
+			} ).join( '' ) +
+		'</details>';
 	}
 
 	function statusSelect( node, kind ) {
@@ -523,14 +583,7 @@
 					'<button type="button" class="snb-icon-btn" data-action="menu" aria-label="More course actions" title="More actions">⋯</button>' +
 				'</div>' +
 			'</div>' +
-			( warns.length
-				? '<details class="snb-warnings"' + ( warns.length <= 3 ? ' open' : '' ) + '>' +
-					'<summary>' + plural( warns.length, 'thing needs', 'things need' ) + ' attention</summary>' +
-					'<ul>' + warns.map( function ( w ) {
-						return '<li>' + ( w.id ? '<button type="button" class="button-link" data-focus="' + w.id + '">' + esc( w.text ) + '</button>' : esc( w.text ) ) + '</li>';
-					} ).join( '' ) + '</ul>' +
-				'</details>'
-				: '' ) +
+			warningsBlock( warns ) +
 			'<div class="snb-toolbar">' +
 				'<button type="button" class="button" data-action="expand-all">Expand all</button>' +
 				'<button type="button" class="button" data-action="collapse-all">Collapse all</button>' +
@@ -1643,6 +1696,14 @@
 			return;
 		}
 
+		var fixBtn = t.closest( '[data-open-panel]' );
+		if ( fixBtn ) {
+			var fixId = parseInt( fixBtn.dataset.openPanel, 10 );
+			focusItem( fixId );
+			openPanel( fixId );
+			return;
+		}
+
 		var actionEl = t.closest( '[data-action]' );
 		var item = t.closest( '[data-id]' );
 		var id = item ? parseInt( item.dataset.id, 10 ) : 0;
@@ -1698,6 +1759,17 @@
 			}, 220 );
 		}
 	} );
+
+	// Re-renders redraw the warnings; remember what the author opened.
+	// "toggle" does not bubble, hence the capture listener.
+	app.addEventListener( 'toggle', function ( event ) {
+		var el = event.target;
+		if ( el.classList.contains( 'snb-warnings' ) ) {
+			state.warningsOpen = el.open;
+		} else if ( el.classList.contains( 'snb-warning-more' ) ) {
+			state.warningsMore[ el.dataset.group ] = el.open;
+		}
+	}, true );
 
 	app.addEventListener( 'dblclick', function ( event ) {
 		var name = event.target.closest( '.snb-name' );
