@@ -222,6 +222,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 // DASHBOARD PAGE
 // ============================================================
 
+/**
+ * A small "?" badge that explains a metric on hover or keyboard focus.
+ * The text is placed by the tooltip script at the bottom of the dashboard.
+ */
+function snn_learn_dash_tip( $text ) {
+    return sprintf(
+        '<span class="snn-dash-tip" tabindex="0" role="img" aria-label="%1$s" data-snn-tip="%1$s">?</span>',
+        esc_attr( $text )
+    );
+}
+
 function snn_learn_dashboard_page() {
     global $wpdb;
     $t = $wpdb->prefix . 'snn_learn_enrollments';
@@ -414,7 +425,8 @@ function snn_learn_dashboard_page() {
         ) );
 
         // ── NEW KPI: Today's Active Learners (since midnight in site timezone) ──
-        $today_midnight = strtotime( 'today', (int) wp_timezone()->getOffset( new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) ) ) );
+        // Midnight in the site timezone, as a Unix timestamp.
+        $today_midnight = ( new DateTimeImmutable( 'today', wp_timezone() ) )->getTimestamp();
         $today_active = (int) $wpdb->get_var( $wpdb->prepare(
             "SELECT COUNT(DISTINCT e.user_id) FROM $t e $group_join WHERE e.last_activity_at >= %d $group_where",
             array_merge( [ $today_midnight ], $group_args )
@@ -528,7 +540,7 @@ function snn_learn_dashboard_page() {
                 <?php if ( ! empty( $group_names ) ) : ?>
                 <form method="get" action="" class="flex items-center gap-2" id="snn-group-form">
                     <input type="hidden" name="page" value="snn-learn">
-                    <label for="snn_group_select" class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Group</label>
+                    <label for="snn_group_select" class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Group</label> <?= snn_learn_dash_tip( 'Show numbers for one group of users only (for example a company or class). Groups are managed as user groups in SNN Learn.' ) ?>
                     <select id="snn_group_select" name="snn_group" onchange="document.getElementById('snn-group-form').submit()" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                         <option value="">All Users</option>
                         <?php foreach ( $group_names as $gn ) : ?>
@@ -552,42 +564,42 @@ function snn_learn_dashboard_page() {
         <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 mb-2.5">
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Today</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Today <?= snn_learn_dash_tip( 'Learners who did anything today (opened or completed a lesson) since midnight in your site\'s timezone.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $today_active ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">WAU</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">WAU <?= snn_learn_dash_tip( 'Weekly Active Users: different learners who did anything in the last 7 days. The arrow compares with the 7 days before that.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $weekly_active ) ?><?= $wau_change_html ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">0% Progress</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">0% Progress <?= snn_learn_dash_tip( 'Course enrollments whose learner has not completed a single lesson yet, in any course. They signed up but never really started.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $zero_progress ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Done (Week)</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Done (Week) <?= snn_learn_dash_tip( 'Courses fully finished (every lesson completed) in the last 7 days.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $completions_this_week ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Lessons Done</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Lessons Done <?= snn_learn_dash_tip( 'Total lesson completions of all time, counted across every learner and course.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $total_lessons_done ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Compl. Rate</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Compl. Rate <?= snn_learn_dash_tip( 'Completion rate: of all the lessons learners have opened, the share they went on to complete. Higher means people finish what they start.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $completion_rate, 1 ) ?>%</p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">1st Lesson</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">1st Lesson <?= snn_learn_dash_tip( 'Average hours between a learner enrolling in a course and completing their first lesson in it. Lower is better: new learners get going quickly.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= $avg_first_lesson_hrs ? number_format( $avg_first_lesson_hrs, 1 ) . 'h' : '&mdash;' ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Velocity</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Velocity <?= snn_learn_dash_tip( 'Lessons completed in the last 7 days divided by the weekly active users. Roughly: how many lessons an active learner finishes per week.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $completion_velocity, 1 ) ?></p>
             </div>
 
@@ -597,42 +609,42 @@ function snn_learn_dashboard_page() {
         <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 mb-3">
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Enrollments</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Enrollments <?= snn_learn_dash_tip( 'Total course enrollments of all time. One learner in 3 courses counts as 3. An enrollment starts the first time someone opens a lesson of a course.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $total_enrollments ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Last 30d</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Last 30d <?= snn_learn_dash_tip( 'New course enrollments in the last 30 days. The arrow compares with the 30 days before that, so you can see if sign-ups are growing.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $recent_enrollments ) ?><?= $enr_change_html ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">New Users</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">New Users <?= snn_learn_dash_tip( 'Learners whose very first course enrollment happened in the last 7 days: brand-new people.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $new_users ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Re-Engaged</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Re-Engaged <?= snn_learn_dash_tip( 'Learners active in the last 7 days who were not active in the 7 days before. Mostly returning learners, but brand-new ones count too.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $re_engaged ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Gone Cold</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Gone Cold <?= snn_learn_dash_tip( 'Learners with an unfinished course and no activity in it for 14+ days. Good people to remind with an email.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $gone_cold ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Courses</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Courses <?= snn_learn_dash_tip( 'Courses that have at least one enrollment.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= number_format( $active_courses ) ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Finish</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Finish <?= snn_learn_dash_tip( 'Average number of days from enrolling to finishing a course, counting only courses that were finished.' ) ?></p>
                 <p class="snn-kpi-value text-xl font-bold text-gray-800"><?= $avg_days ? number_format( $avg_days, 1 ) . 'd' : '&mdash;' ?></p>
             </div>
 
             <div class="snn-kpi-card bg-white rounded-lg shadow-sm p-2.5">
-                <p class="snn-kpi-label text-xs font-semibold text-gray-400 uppercase tracking-wider">Peak Day</p>
+                <p class="snn-kpi-label flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Peak Day <?= snn_learn_dash_tip( 'The single day in the last 12 months with the most new course enrollments.' ) ?></p>
                 <p class="snn-kpi-value text-base font-bold text-gray-800"><?= $peak_day ? esc_html( $peak_day->date ) : '&mdash;' ?></p>
             </div>
 
@@ -642,20 +654,20 @@ function snn_learn_dashboard_page() {
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-3">
 
             <div class="snn-chart-card bg-white rounded-lg shadow-sm p-3">
-                <h2 class="snn-chart-title text-xs font-semibold text-gray-500 mb-2">Enrollment &amp; Completion Trend — Last 30 Days</h2>
+                <h2 class="snn-chart-title flex items-center gap-1 text-xs font-semibold text-gray-500 mb-2">Enrollment &amp; Completion Trend — Last 30 Days <?= snn_learn_dash_tip( 'Blue: new course enrollments per day. Green: lessons completed per day. When blue grows, you are gaining learners; when green follows, they are actually learning.' ) ?></h2>
                 <canvas id="snn-trend-chart" height="90"></canvas>
             </div>
 
             <div class="snn-perf-card bg-white rounded-lg shadow-sm p-3">
-                <h2 class="snn-perf-title text-xs font-semibold text-gray-500 mb-2">Course Performance</h2>
+                <h2 class="snn-perf-title flex items-center gap-1 text-xs font-semibold text-gray-500 mb-2">Course Performance <?= snn_learn_dash_tip( 'Each course with its enrollments. Compare courses to see which ones people finish and which ones they drop.' ) ?></h2>
                 <div class="overflow-auto max-h-40">
                     <table class="snn-perf-table w-full text-sm">
                         <thead>
                             <tr class="text-left text-xs font-semibold text-gray-400 border-b">
                                 <th class="pb-2 pr-4">Course</th>
-                                <th class="pb-2 pr-4">Enrolled</th>
-                                <th class="pb-2 pr-4">Finished</th>
-                                <th class="pb-2">Rate</th>
+                                <th class="pb-2 pr-4">Enrolled <?= snn_learn_dash_tip( 'Different learners who started this course.' ) ?></th>
+                                <th class="pb-2 pr-4">Finished <?= snn_learn_dash_tip( 'Learners who completed every lesson of this course.' ) ?></th>
+                                <th class="pb-2">Rate <?= snn_learn_dash_tip( 'Finished divided by Enrolled. Green is 70% or more, yellow 40–70%, red under 40%. A low rate often means a lesson is too hard, too long or unclear.' ) ?></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -693,7 +705,7 @@ function snn_learn_dashboard_page() {
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             <div class="snn-risk-card bg-white rounded-lg shadow-sm p-3">
-                <h2 class="snn-risk-title text-xs font-semibold text-red-600 mb-2">&#9888; At-Risk <span class="font-normal text-gray-400">(14+ days inactive, not completed)</span></h2>
+                <h2 class="snn-risk-title flex items-center gap-1 text-xs font-semibold text-red-600 mb-2">&#9888; At-Risk <span class="font-normal text-gray-400">(14+ days inactive, not completed)</span> <?= snn_learn_dash_tip( 'Learners who started a course but have not touched it for 14 days or more, oldest first. These are the people most likely to quit; a friendly reminder can bring them back.' ) ?></h2>
                 <div class="overflow-auto max-h-80">
                     <table class="snn-risk-table w-full text-sm">
                         <thead>
@@ -737,7 +749,7 @@ function snn_learn_dashboard_page() {
             </div>
 
             <div class="snn-feed-card bg-white rounded-lg shadow-sm p-3">
-                <h2 class="snn-feed-title text-xs font-semibold text-gray-500 mb-2">Recent Activity Feed</h2>
+                <h2 class="snn-feed-title flex items-center gap-1 text-xs font-semibold text-gray-500 mb-2">Recent Activity Feed <?= snn_learn_dash_tip( 'The latest enrollments and lesson completions, newest first. Green circle: something was completed. Blue circle: a new enrollment.' ) ?></h2>
                 <div class="snn-feed-list space-y-1.5 overflow-auto max-h-44">
                 <?php foreach ( $recent_activity as $a ) :
                     $user         = get_userdata( $a->user_id );
@@ -770,7 +782,66 @@ function snn_learn_dashboard_page() {
     </div>
     </div>
 
+    <style>
+    .snn-dash-tip {
+        display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+        width: 14px; height: 14px; border-radius: 999px;
+        font-size: 10px; font-weight: 700; line-height: 1; text-transform: none; letter-spacing: 0;
+        color: #6b7280; background: #e5e7eb; cursor: help; user-select: none;
+    }
+    .snn-dash-tip:hover, .snn-dash-tip:focus-visible { color: #fff; background: #2563eb; outline: none; }
+    .snn-dash-tooltip {
+        position: fixed; z-index: 100000; max-width: 280px; padding: 8px 10px; border-radius: 6px;
+        font-size: 12px; font-weight: 400; line-height: 1.45; text-transform: none; letter-spacing: 0;
+        color: #fff; background: #111827; box-shadow: 0 6px 20px rgba(0,0,0,.2);
+        pointer-events: none; opacity: 0; transition: opacity .12s ease;
+    }
+    .snn-dash-tooltip.is-visible { opacity: 1; }
+    </style>
+
     <script>
+    // One shared tooltip for every "?" badge, kept inside the viewport.
+    (function () {
+        var tip = null;
+
+        function show(target) {
+            if (!tip) {
+                tip = document.createElement('div');
+                tip.className = 'snn-dash-tooltip';
+                tip.setAttribute('role', 'tooltip');
+                document.body.appendChild(tip);
+            }
+            tip.textContent = target.getAttribute('data-snn-tip');
+            tip.classList.add('is-visible');
+
+            var r = target.getBoundingClientRect();
+            var w = tip.offsetWidth, h = tip.offsetHeight, gap = 8;
+            var left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+            var top = r.top - h - gap;
+            if (top < 40) { top = r.bottom + gap; } // no room above (admin bar): show below
+            tip.style.left = left + 'px';
+            tip.style.top = top + 'px';
+        }
+
+        function hide() {
+            if (tip) { tip.classList.remove('is-visible'); }
+        }
+
+        ['mouseover', 'focusin'].forEach(function (type) {
+            document.addEventListener(type, function (e) {
+                var t = e.target.closest && e.target.closest('[data-snn-tip]');
+                if (t) { show(t); }
+            });
+        });
+        ['mouseout', 'focusout'].forEach(function (type) {
+            document.addEventListener(type, function (e) {
+                if (e.target.closest && e.target.closest('[data-snn-tip]')) { hide(); }
+            });
+        });
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hide(); } });
+        window.addEventListener('scroll', hide, true);
+    })();
+
     document.addEventListener('DOMContentLoaded', function () {
         // ---- Dual-line Enrollment + Completion Trend Chart ----
         var ctx = document.getElementById('snn-trend-chart');
