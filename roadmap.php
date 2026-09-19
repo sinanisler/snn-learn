@@ -1031,7 +1031,7 @@ function closeModal(){
   if(boardUrl){history.replaceState(null,'',boardUrl);boardUrl=null}
   if(lastFocus)lastFocus.focus();
 }
-function openModal(id,href,hash){
+function openModal(id,href){
   lastFocus=document.activeElement;
   modal=document.createElement('div');modal.className='snn-rm-modal';modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');modal.setAttribute('aria-labelledby','snn-rm-modal-title');
   modal.setAttribute('data-lenis-prevent','');
@@ -1044,14 +1044,14 @@ function openModal(id,href,hash){
   var m=modal;
   m.addEventListener('mousedown',function(e){if(e.target===m)closeModal()});
   m.querySelector('.snn-rm-modal-close').addEventListener('click',closeModal);
-  m.querySelector('.snn-rm-modal-close').focus();
-  boardUrl=location.href;history.replaceState(null,'',href);
+  m.querySelector('.snn-rm-modal-close').focus({preventScroll:true});
+  boardUrl=location.href;history.replaceState(null,'',href.split('#')[0]);
   fetch(C.ajax+'?action=snn_rm_detail&post_id='+encodeURIComponent(id),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
     if(m!==modal)return;
     var l=m.querySelector('.snn-rm-loading');
     if(!j.success){l.textContent=(j.data&&j.data.message)||'Could not load this item.';return}
     l.insertAdjacentHTML('afterend',j.data.html);l.remove();initComments(m);
-    if(hash==='#comments'){var c=m.querySelector('.snn-rm-comments');if(c)m.querySelector('.snn-rm-modal-body').scrollTop=c.offsetTop-20}
+    m.querySelector('.snn-rm-modal-body').scrollTop=0;
   }).catch(function(){if(m===modal)m.querySelector('.snn-rm-loading').textContent='Could not load this item.'});
 }
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal){var open=modal.querySelector('.snn-rm-ed-colors.is-open');if(open)open.classList.remove('is-open');else closeModal()}});
@@ -1059,7 +1059,7 @@ document.addEventListener('click',function(e){
   var a=e.target.closest('a.snn-rm-open');if(!a)return;
   var board=a.closest('.snn-rm');if(!board||board.dataset.open!=='modal')return;
   if(e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
-  e.preventDefault();openModal(a.dataset.id,a.href,a.hash);
+  e.preventDefault();openModal(a.dataset.id,a.href);
 });
 
 initComments(document);
