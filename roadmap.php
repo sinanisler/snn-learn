@@ -431,7 +431,9 @@ function snn_rm_detail_html( $post, $full = true ) {
             <?php if ( $s['votes'] && ! is_user_logged_in() ) : ?>
                 <span class="snn-rm-hint"><a href="<?= esc_url( wp_login_url( get_permalink( $post ) ) ) ?>">Log in</a> to vote and comment.</span>
             <?php endif; ?>
-            <a class="snn-rm-permalink" href="<?= esc_url( get_permalink( $post ) ) ?>">Permalink</a>
+            <?php if ( current_user_can( 'manage_options' ) && current_user_can( 'edit_post', $post->ID ) ) : ?>
+                <a class="snn-rm-edit-item" href="<?= esc_url( get_edit_post_link( $post->ID ) ) ?>">Edit item</a>
+            <?php endif; ?>
         </div>
 
         <?php if ( snn_rm_comments_allowed( $post ) ) echo snn_rm_comments_html( $post ); ?>
@@ -460,8 +462,13 @@ function snn_rm_edit_deadline( $comment ) {
     return strtotime( $comment->comment_date_gmt . ' UTC' ) + $hours * HOUR_IN_SECONDS;
 }
 
+function snn_rm_is_moderator() {
+    return current_user_can( 'moderate_comments' );
+}
+
 function snn_rm_can_modify( $comment, $user_id = null ) {
     $user_id = $user_id ?? get_current_user_id();
+    if ( $user_id && snn_rm_is_moderator() ) return true;
     if ( ! $user_id || (int) $comment->user_id !== (int) $user_id ) return false;
     $deadline = snn_rm_edit_deadline( $comment );
     return $deadline && time() < $deadline;
@@ -474,7 +481,7 @@ function snn_rm_comment_html( $c, $replies = [], $can_reply = false ) {
     $is_reply = (int) $c->comment_parent > 0;
 
     ob_start(); ?>
-    <li class="snn-rm-c<?= $is_reply ? ' is-reply' : '' ?><?= $c->comment_approved !== '1' ? ' is-pending' : '' ?>" id="comment-<?= (int) $c->comment_ID ?>" data-id="<?= (int) $c->comment_ID ?>"<?= $mine ? ' data-until="' . (int) snn_rm_edit_deadline( $c ) . '"' : '' ?>>
+    <li class="snn-rm-c<?= $is_reply ? ' is-reply' : '' ?><?= $c->comment_approved !== '1' ? ' is-pending' : '' ?>" id="comment-<?= (int) $c->comment_ID ?>" data-id="<?= (int) $c->comment_ID ?>"<?= $mine && ! snn_rm_is_moderator() ? ' data-until="' . (int) snn_rm_edit_deadline( $c ) . '"' : '' ?>>
         <img class="snn-rm-avatar" src="<?= esc_url( get_avatar_url( $c, [ 'size' => 64 ] ) ) ?>" alt="" width="32" height="32" loading="lazy">
         <div class="snn-rm-c-main">
             <div class="snn-rm-c-head">
@@ -526,15 +533,15 @@ function snn_rm_comments_html( $post ) {
     ob_start(); ?>
     <section class="snn-rm-comments" id="comments" data-post="<?= (int) $post->ID ?>">
         <h3 class="snn-rm-comments-title">Comments <span class="snn-rm-comments-count"><?= count( $all ) ?></span></h3>
+        <ol class="snn-rm-clist">
+            <?php foreach ( $top as $c ) echo snn_rm_comment_html( $c, $replies[ $c->comment_ID ] ?? [], (bool) $user_id ); ?>
+        </ol>
+        <?php if ( ! $top ) : ?><p class="snn-rm-no-comments">No comments yet. Start the conversation.</p><?php endif; ?>
         <?php if ( $user_id ) : ?>
             <div class="snn-rm-composer" data-parent="0"></div>
         <?php else : ?>
             <p class="snn-rm-login-note"><a href="<?= esc_url( wp_login_url( get_permalink( $post ) ) ) ?>">Log in</a> to join the discussion.</p>
         <?php endif; ?>
-        <ol class="snn-rm-clist">
-            <?php foreach ( $top as $c ) echo snn_rm_comment_html( $c, $replies[ $c->comment_ID ] ?? [], (bool) $user_id ); ?>
-        </ol>
-        <?php if ( ! $top ) : ?><p class="snn-rm-no-comments">No comments yet. Start the conversation.</p><?php endif; ?>
     </section>
     <?php
     return ob_get_clean();
@@ -669,10 +676,13 @@ add_action( 'wp_ajax_snn_rm_comment_edit', function () {
 // Delete own comment within the edit window (only if nobody replied yet)
 add_action( 'wp_ajax_snn_rm_comment_delete', function () {
     snn_rm_ajax_guard();
-    $c = snn_rm_ajax_own_comment();
-    if ( get_comments( [ 'parent' => $c->comment_ID, 'count' => true, 'status' => 'all' ] ) ) {
+    $c       = snn_rm_ajax_own_comment();
+    $replies = get_comments( [ 'parent' => $c->comment_ID, 'status' => 'all', 'fields' => 'ids' ] );
+    if ( $replies && ! snn_rm_is_moderator() ) {
         wp_send_json_error( [ 'message' => 'This comment has replies, so it can only be edited.' ] );
     }
+    // Moderators removing a thread take its replies with it.
+    foreach ( $replies as $rid ) wp_delete_comment( $rid );
     wp_delete_comment( $c->comment_ID );
     wp_send_json_success();
 } );
@@ -758,8 +768,8 @@ html.snn-rm-lock{overflow:hidden}
 .snn-rm-detail-content iframe{aspect-ratio:16/9;width:100%}
 .snn-rm-detail-bar{display:flex;align-items:center;flex-wrap:wrap;gap:14px;margin-top:28px;padding:16px 0;border-top:1px solid #f0f0f0;border-bottom:1px solid #f0f0f0}
 .snn-rm-hint{font-size:14px;color:#6b7280}
-.snn-rm-permalink{margin-left:auto;font-size:13px;color:#6b7280}
-.snn-rm-modal .snn-rm-permalink{display:inline}
+.snn-rm-edit-item{margin-left:auto;font-size:13px;font-weight:600;color:#6b7280;text-decoration:none;border:1px solid #e5e7eb;border-radius:8px;padding:6px 12px}
+.snn-rm-edit-item:hover{color:#111;border-color:#9ca3af}
 .snn-rm-detail > .snn-rm-detail-bar:first-child{margin-top:32px}
 /* comments */
 .snn-rm-comments{margin-top:28px}
@@ -767,7 +777,8 @@ html.snn-rm-lock{overflow:hidden}
 .snn-rm-comments-count{font-size:12px;background:#f3f4f6;color:#6b7280;border-radius:99px;padding:2px 9px}
 .snn-rm-login-note,.snn-rm-no-comments{color:#6b7280;font-size:14px}
 .snn-rm-clist,.snn-rm-replies{list-style:none;margin:0;padding:0}
-.snn-rm-clist{margin-top:22px}
+.snn-rm-clist{margin-bottom:8px}
+.snn-rm-comments > .snn-rm-composer{margin-top:18px}
 .snn-rm-c{display:flex;gap:12px;margin:0 0 20px;padding:0}
 .snn-rm-replies{margin-top:14px}
 .snn-rm-replies .snn-rm-c{margin-bottom:14px}
@@ -791,7 +802,8 @@ html.snn-rm-lock{overflow:hidden}
 .snn-rm-ed:focus-within{border-color:#9ca3af;box-shadow:0 0 0 3px rgba(156,163,175,.2)}
 .snn-rm-ed-bar{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:6px;border-bottom:1px solid #f0f0f0;background:#fafafa}
 .snn-rm-ed-bar button,.snn-rm-ed-bar select{height:30px;min-width:30px;border:0;background:transparent;border-radius:6px;cursor:pointer;font:inherit;font-size:14px;color:#374151;display:inline-flex;align-items:center;justify-content:center;padding:0 6px}
-.snn-rm-ed-bar select{font-size:13px;padding:0 4px}
+.snn-rm-ed .snn-rm-ed-bar select{width:auto!important;max-width:none;flex:0 0 auto;margin:0;font-size:13px;padding:0 4px;border:0;box-shadow:none;background-color:transparent;line-height:30px}
+.snn-rm-ed .snn-rm-ed-bar > *{flex:0 0 auto;margin:0}
 .snn-rm-ed-bar button:hover,.snn-rm-ed-bar select:hover{background:#eef0f3}
 .snn-rm-ed-bar button.is-on{background:#e5e7eb;color:#111}
 .snn-rm-ed-sep{width:1px;height:18px;background:#e5e7eb;margin:0 4px}
@@ -951,9 +963,10 @@ function initComments(root){
         }});ed2.focus();
       }
       if(b.classList.contains('snn-rm-act-delete')){
-        if(!confirm('Delete this comment?'))return;
+        var nr=li.querySelectorAll('.snn-rm-replies .snn-rm-c').length;
+        if(!confirm(nr?'Delete this comment and its '+nr+' repl'+(nr>1?'ies':'y')+'?':'Delete this comment?'))return;
         b.disabled=true;
-        post('snn_rm_comment_delete',{comment_id:id}).then(function(){li.remove();bump(sec,-1)}).catch(function(err){b.disabled=false;toast(esc(err.message))});
+        post('snn_rm_comment_delete',{comment_id:id}).then(function(){li.remove();bump(sec,-1-nr)}).catch(function(err){b.disabled=false;toast(esc(err.message))});
       }
     });
   });
