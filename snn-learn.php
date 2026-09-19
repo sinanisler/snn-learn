@@ -713,6 +713,7 @@ require_once plugin_dir_path( __FILE__ ) . 'video-player.php';
 require_once plugin_dir_path( __FILE__ ) . 'shortcodes.php';
 require_once plugin_dir_path( __FILE__ ) . 'emails.php';
 require_once plugin_dir_path( __FILE__ ) . 'rest-api.php';    // Extended REST API (33 admin/reporting endpoints)
+require_once plugin_dir_path( __FILE__ ) . 'roadmap.php';     // Public roadmap board, votes & comments (off by default)
 
 // Third-party integrations — only load when the relevant theme/plugin is active
 if ( function_exists( 'bricks_is_builder' ) || wp_get_theme()->get_template() === 'bricks' ) {
