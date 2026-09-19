@@ -254,6 +254,11 @@ function snn_rm_is_public_item( $post ) {
     return $post && $post->post_type === SNN_RM_PT && $post->post_status === 'publish' && ! post_password_required( $post );
 }
 
+/** Sign-up page shown to guests (pricing + registration). */
+function snn_rm_register_url() {
+    return apply_filters( 'snn_rm_register_url', home_url( '/register/' ) );
+}
+
 function snn_rm_comments_allowed( $post ) {
     return snn_rm_settings()['comments'] && comments_open( $post );
 }
@@ -429,7 +434,7 @@ function snn_rm_detail_html( $post, $full = true ) {
         <div class="snn-rm-detail-bar">
             <?= snn_rm_vote_button( $post->ID, 'is-large' ) ?>
             <?php if ( $s['votes'] && ! is_user_logged_in() ) : ?>
-                <span class="snn-rm-hint"><a href="<?= esc_url( wp_login_url( get_permalink( $post ) ) ) ?>">Log in</a> to vote and comment.</span>
+                <span class="snn-rm-hint"><a href="<?= esc_url( wp_login_url( get_permalink( $post ) ) ) ?>">Log in</a> or <a href="<?= esc_url( snn_rm_register_url() ) ?>">register</a> to vote and comment.</span>
             <?php endif; ?>
             <?php if ( current_user_can( 'manage_options' ) && current_user_can( 'edit_post', $post->ID ) ) : ?>
                 <a class="snn-rm-edit-item" href="<?= esc_url( get_edit_post_link( $post->ID ) ) ?>">Edit item</a>
@@ -521,12 +526,10 @@ function snn_rm_comments_html( $post ) {
             <div class="snn-rm-locked">
                 <div class="snn-rm-locked-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6zm9 14H6V10h12v10zm-6-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg></div>
                 <p class="snn-rm-locked-title"><?= $n ? esc_html( sprintf( _n( '%s comment from members so far.', '%s comments from members so far.', $n ), number_format_i18n( $n ) ) ) : 'Be the first to share your thoughts.' ?></p>
-                <p class="snn-rm-locked-text">Comments are only visible to registered members. Log in or create an account to read the discussion, vote and suggest what we build next.</p>
+                <p class="snn-rm-locked-text">Comments are only visible to registered members. Log in or register to read the discussion, vote and suggest what we build next.</p>
                 <div class="snn-rm-locked-actions">
-                    <a class="snn-rm-btn" href="<?= esc_url( $login ) ?>">Log in</a>
-                    <?php if ( get_option( 'users_can_register' ) ) : ?>
-                        <a class="snn-rm-btn is-ghost" href="<?= esc_url( wp_registration_url() ) ?>">Create account</a>
-                    <?php endif; ?>
+                    <a class="snn-rm-btn" href="<?= esc_url( snn_rm_register_url() ) ?>">Register</a>
+                    <a class="snn-rm-btn is-ghost" href="<?= esc_url( $login ) ?>">Log in</a>
                 </div>
             </div>
         </section>
@@ -727,6 +730,7 @@ function snn_rm_print_js() {
         'ajax'     => admin_url( 'admin-ajax.php' ),
         'nonce'    => wp_create_nonce( 'snn_rm' ),
         'loggedIn' => is_user_logged_in(),
+        'registerUrl' => snn_rm_register_url(),
         'loginUrl' => wp_login_url( ( is_ssl() ? 'https://' : 'http://' ) . ( $_SERVER['HTTP_HOST'] ?? '' ) . ( $_SERVER['REQUEST_URI'] ?? '' ) ),
     ];
     echo '<script id="snn-rm-js">window.snnRM=' . wp_json_encode( $cfg ) . ';' . snn_rm_front_js() . '</script>'; // phpcs:ignore
@@ -882,7 +886,7 @@ function toast(html){
   if(!t){t=document.createElement('div');t.className='snn-rm-toast';t.setAttribute('role','status');document.body.appendChild(t)}
   t.innerHTML=html;clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.remove()},4000);
 }
-function needLogin(){toast('Please <a href="'+C.loginUrl+'">log in</a> to vote and comment.')}
+function needLogin(){toast('Please <a href="'+C.loginUrl+'">log in</a> or <a href="'+C.registerUrl+'">register</a> to vote and comment.')}
 function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
 
 /* ---------- editor ---------- */
