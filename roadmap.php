@@ -511,6 +511,29 @@ function snn_rm_comments_html( $post ) {
     $post    = get_post( $post );
     $user_id = get_current_user_id();
 
+    // Guests only see how many comments there are — an incentive to register.
+    if ( ! $user_id ) {
+        $n     = (int) get_comments_number( $post );
+        $login = wp_login_url( get_permalink( $post ) );
+        ob_start(); ?>
+        <section class="snn-rm-comments" id="comments" data-post="<?= (int) $post->ID ?>">
+            <h3 class="snn-rm-comments-title">Comments <span class="snn-rm-comments-count"><?= $n ?></span></h3>
+            <div class="snn-rm-locked">
+                <div class="snn-rm-locked-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6zm9 14H6V10h12v10zm-6-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg></div>
+                <p class="snn-rm-locked-title"><?= $n ? esc_html( sprintf( _n( '%s comment from members so far.', '%s comments from members so far.', $n ), number_format_i18n( $n ) ) ) : 'Be the first to share your thoughts.' ?></p>
+                <p class="snn-rm-locked-text">Comments are only visible to registered members. Log in or create an account to read the discussion, vote and suggest what we build next.</p>
+                <div class="snn-rm-locked-actions">
+                    <a class="snn-rm-btn" href="<?= esc_url( $login ) ?>">Log in</a>
+                    <?php if ( get_option( 'users_can_register' ) ) : ?>
+                        <a class="snn-rm-btn is-ghost" href="<?= esc_url( wp_registration_url() ) ?>">Create account</a>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </section>
+        <?php
+        return ob_get_clean();
+    }
+
     $args = [ 'post_id' => $post->ID, 'status' => 'approve', 'type' => 'comment', 'orderby' => 'comment_date_gmt', 'order' => 'ASC' ];
     if ( $user_id ) $args['include_unapproved'] = [ $user_id ];
     $all = get_comments( $args );
@@ -747,15 +770,16 @@ function snn_rm_front_css() {
 .snn-rm-tags .snn-rm-dot{width:9px;height:9px}
 .snn-rm-card-comments{display:inline-flex;align-items:center;gap:5px;margin-top:14px;font-size:13px;color:#6b7280;text-decoration:none}
 /* modal */
-.snn-rm-modal{position:fixed;inset:0;z-index:100000;display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;background:rgba(17,24,39,.55);overflow-y:auto;opacity:0;transition:opacity .18s}
+.snn-rm-modal{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:4vh 16px;background:rgba(17,24,39,.55);opacity:0;transition:opacity .18s}
 .snn-rm-modal.is-open{opacity:1}
-.snn-rm-modal-panel{position:relative;width:100%;max-width:780px;background:#fff;border-radius:14px;padding:36px 40px 40px;box-shadow:0 25px 60px rgba(0,0,0,.25);transform:translateY(12px);transition:transform .18s}
+.snn-rm-modal-panel{position:relative;display:flex;flex-direction:column;width:100%;max-width:780px;max-height:92vh;max-height:92dvh;background:#fff;border-radius:14px;box-shadow:0 25px 60px rgba(0,0,0,.25);transform:translateY(12px);transition:transform .18s;overflow:hidden}
+.snn-rm-modal-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:36px 40px 40px}
 .snn-rm-modal.is-open .snn-rm-modal-panel{transform:none}
-@media(max-width:600px){.snn-rm-modal-panel{padding:26px 18px 28px}}
-.snn-rm-modal-close{position:absolute;top:14px;right:14px;border:0;background:#f3f4f6;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#374151}
+@media(max-width:600px){.snn-rm-modal{padding:12px}.snn-rm-modal-body{padding:26px 18px 28px}}
+.snn-rm-modal-close{position:absolute;z-index:2;top:14px;right:14px;border:0;background:#f3f4f6;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#374151}
 .snn-rm-modal-close:hover{background:#e5e7eb}
 .snn-rm-loading{padding:60px 0;text-align:center;color:#9ca3af}
-html.snn-rm-lock{overflow:hidden}
+html.snn-rm-lock,html.snn-rm-lock body{overflow:hidden!important}
 /* detail */
 .snn-rm-detail{--snn-rm-c:#6b7280}
 .snn-rm-detail-meta{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
@@ -775,6 +799,13 @@ html.snn-rm-lock{overflow:hidden}
 .snn-rm-comments{margin-top:28px}
 .snn-rm-comments-title{margin:0 0 16px;font-size:18px;display:flex;align-items:center;gap:8px}
 .snn-rm-comments-count{font-size:12px;background:#f3f4f6;color:#6b7280;border-radius:99px;padding:2px 9px}
+.snn-rm-locked{border:1px dashed #d1d5db;border-radius:12px;background:#fafafa;padding:28px 24px;text-align:center}
+.snn-rm-locked-icon{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:#fff;border:1px solid #e5e7eb;color:#6b7280}
+.snn-rm-locked-title{margin:12px 0 4px;font-size:16px;font-weight:700;color:#111827}
+.snn-rm-locked-text{margin:0 auto;max-width:440px;font-size:14px;line-height:1.6;color:#6b7280}
+.snn-rm-locked-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:16px}
+.snn-rm-locked-actions a{text-decoration:none;display:inline-block}
+.snn-rm-btn.is-ghost{border:1px solid #d1d5db}
 .snn-rm-login-note,.snn-rm-no-comments{color:#6b7280;font-size:14px}
 .snn-rm-clist,.snn-rm-replies{list-style:none;margin:0;padding:0}
 .snn-rm-clist{margin-bottom:8px}
@@ -1003,7 +1034,10 @@ function closeModal(){
 function openModal(id,href,hash){
   lastFocus=document.activeElement;
   modal=document.createElement('div');modal.className='snn-rm-modal';modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');modal.setAttribute('aria-labelledby','snn-rm-modal-title');
-  modal.innerHTML='<div class="snn-rm-modal-panel"><button type="button" class="snn-rm-modal-close" aria-label="Close"></button><div class="snn-rm-loading">Loading…</div></div>';
+  modal.setAttribute('data-lenis-prevent','');
+  modal.innerHTML='<div class="snn-rm-modal-panel"><button type="button" class="snn-rm-modal-close" aria-label="Close"></button><div class="snn-rm-modal-body" data-lenis-prevent><div class="snn-rm-loading">Loading…</div></div></div>';
+  // Keep wheel/touch scrolling inside the popup — smooth-scroll libraries on the page would otherwise swallow it.
+  ['wheel','touchmove'].forEach(function(t){modal.addEventListener(t,function(e){e.stopPropagation()},{passive:true})});
   modal.querySelector('.snn-rm-modal-close').innerHTML='<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
   document.body.appendChild(modal);document.documentElement.classList.add('snn-rm-lock');
   requestAnimationFrame(function(){modal&&modal.classList.add('is-open')});
@@ -1017,7 +1051,7 @@ function openModal(id,href,hash){
     var l=m.querySelector('.snn-rm-loading');
     if(!j.success){l.textContent=(j.data&&j.data.message)||'Could not load this item.';return}
     l.insertAdjacentHTML('afterend',j.data.html);l.remove();initComments(m);
-    if(hash==='#comments'){var c=m.querySelector('.snn-rm-comments');if(c)c.scrollIntoView()}
+    if(hash==='#comments'){var c=m.querySelector('.snn-rm-comments');if(c)m.querySelector('.snn-rm-modal-body').scrollTop=c.offsetTop-20}
   }).catch(function(){if(m===modal)m.querySelector('.snn-rm-loading').textContent='Could not load this item.'});
 }
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal){var open=modal.querySelector('.snn-rm-ed-colors.is-open');if(open)open.classList.remove('is-open');else closeModal()}});
