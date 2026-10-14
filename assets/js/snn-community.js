@@ -218,8 +218,8 @@
         '<span class="snn-cm-ed-sep"></span>' +
         '<button type="button" data-cmd="removeFormat" title="Clear formatting">&#10005;</button>' +
       '</div>' +
-      '<div class="snn-cm-ed-area" data-lenis-prevent contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="' + esc(opts.placeholder || 'Share your thoughts…') + '"></div>' +
       '<div class="snn-cm-imgtools" hidden><span>Image size:</span>' + widths + '<button type="button" data-remove>Remove image</button></div>' +
+      '<div class="snn-cm-ed-area" data-lenis-prevent contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="' + esc(opts.placeholder || 'Share your thoughts…') + '"></div>' +
       '<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple hidden>' +
       '<div class="snn-cm-ed-foot">' +
         '<span class="snn-cm-ed-msg" aria-live="polite"></span>' +
@@ -315,6 +315,12 @@
       });
     }
 
+    /** Images are half the editor width when added; the size buttons change that. */
+    function setImgWidth(img, pct) {
+      img.style.width = pct + '%';
+      img.removeAttribute('height');
+    }
+
     function insertImage(src, w, h) {
       restoreSel();
       var img = document.createElement('img');
@@ -325,6 +331,7 @@
       img.height = h;
       img.loading = 'lazy';
       img.decoding = 'async';
+      setImgWidth(img, 50);
 
       var s = window.getSelection();
       var range = (s.rangeCount && area.contains(s.anchorNode)) ? s.getRangeAt(0) : null;
@@ -474,20 +481,28 @@
     });
 
     // Image tools: click an image to resize or remove it, as the snn-brx editor does.
+    // The size button for the selected image's current width is highlighted.
+    function markWidth() {
+      var cur = selected ? Math.round(parseFloat(selected.style.width)) : NaN;
+      tools.querySelectorAll('[data-width]').forEach(function (b) {
+        b.classList.toggle('is-on', Number(b.dataset.width) === cur);
+      });
+    }
     area.addEventListener('click', function (e) {
       var img = e.target.closest('img');
       if (selected) selected.classList.remove('is-selected');
       selected = img && area.contains(img) ? img : null;
       if (selected) selected.classList.add('is-selected');
       tools.hidden = !selected;
+      markWidth();
     });
     tools.addEventListener('mousedown', function (e) { e.preventDefault(); });
     tools.addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (!b || !selected) return;
       if (b.dataset.width) {
-        selected.style.width = b.dataset.width + '%';
-        selected.removeAttribute('height');
+        setImgWidth(selected, b.dataset.width);
+        markWidth();
         snapshot();
       } else if (b.hasAttribute('data-remove')) {
         selected.remove();
