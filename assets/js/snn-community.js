@@ -594,7 +594,8 @@
     if (!root.querySelector('.snn-cm-list')) return;   // the locked box has the same class but no list
     root.dataset.snnCmReady = '1';
 
-    var state = { cat: root.dataset.cat || '', page: 1, topic: 0 };
+    var state = { cat: root.dataset.cat || '', page: 1, topic: 0, search: '' };
+    var listSeq = 0;   // the newest list request wins, so a slow old answer cannot overwrite a newer search
     var side = root.querySelector('.snn-cm-side-list');
     var main = root.querySelector('.snn-cm-main');
     var heading = root.querySelector('.snn-cm-heading');
@@ -621,6 +622,11 @@
       return c ? c.name : 'Latest topics';
     }
 
+    function setHeading() {
+      if (!heading) return;
+      heading.textContent = state.search ? 'Search: "' + state.search + '"' : catName(state.cat);
+    }
+
     function setUrl(id) {
       var u = new URL(window.location.href);
       if (id) u.searchParams.set('snn_topic', id);
@@ -629,13 +635,18 @@
     }
 
     function fetchList(page, reset) {
-      return post('snn_cm_list', { category: state.cat, page: page }).then(function (d) {
+      var seq = ++listSeq;
+      return post('snn_cm_list', { category: state.cat, search: state.search, page: page }).then(function (d) {
+        if (seq !== listSeq) return;   // a newer list request has started since
         if (reset) list.innerHTML = '';
         list.insertAdjacentHTML('beforeend', d.html);
         state.page = page;
         if (d.sidebar !== null && d.sidebar !== undefined) side.innerHTML = d.sidebar;
         if (moreWrap) moreWrap.hidden = !d.has_more;
-        if (emptyMsg) emptyMsg.hidden = list.children.length > 0;
+        if (emptyMsg) {
+          emptyMsg.textContent = state.search ? 'No topics match your search.' : 'No topics here yet.';
+          emptyMsg.hidden = list.children.length > 0;
+        }
       }).catch(function (e) { toast(esc(e.message)); });
     }
 
@@ -709,6 +720,30 @@
       titleInput.focus();
     }
 
+    /* search: the small box at the foot of the sidebar. Runs after a short pause in typing, on Enter, or when cleared. */
+    var searchInput = root.querySelector('.snn-cm-search-input');
+    var searchTimer;
+    function runSearch() {
+      var q = searchInput ? searchInput.value.trim() : '';
+      if (q === state.search) return;
+      state.search = q;
+      closeThread(!!state.topic);   // results replace an open topic; the address bar follows
+      show('list');
+      setHeading();
+      fetchList(1, true);
+    }
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runSearch, 300);
+      });
+      searchInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); clearTimeout(searchTimer); runSearch(); }
+        if (e.key === 'Escape' && searchInput.value) { searchInput.value = ''; clearTimeout(searchTimer); runSearch(); }
+      });
+      searchInput.addEventListener('search', runSearch);   // the clear cross in some browsers
+    }
+
     /* clicks */
     root.addEventListener('click', function (e) {
       var cat = e.target.closest('.snn-cm-cat');
@@ -717,7 +752,7 @@
         state.cat = cat.dataset.slug || '';
         root.dataset.cat = state.cat;
         side.querySelectorAll('.snn-cm-cat').forEach(function (b) { b.classList.toggle('is-active', b === cat); });
-        if (heading) heading.textContent = catName(state.cat);
+        setHeading();
         closeThread(true);
         fetchList(1, true);
         return;
@@ -742,10 +777,11 @@
       if (img) lightbox(img.src);
     });
 
-    /* reply, edit and delete inside a topic */
+    /* topic tools, then reply, edit, delete and mute inside a topic */
     threadView.addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (!b) return;
+      if (b.dataset.topicAct) { topicAction(b); return; }
       var li = b.closest('.snn-cm-c');
       if (!li) return;
       var sec = threadView.querySelector('.snn-cm-comments');
@@ -768,11 +804,33 @@
               body.innerHTML = d.html;
               body.hidden = false;
               editHolder.remove();
+              // The label carries the date, so readers can see when it changed.
               var head = main.querySelector(':scope > .snn-cm-c-head');
-              if (head && !head.querySelector('.snn-cm-edited')) head.insertAdjacentHTML('beforeend', '<span class="snn-cm-edited">(edited)</span>');
+              var tag = head ? head.querySelector('.snn-cm-edited') : null;
+              if (head && !tag) {
+                tag = document.createElement('span');
+                tag.className = 'snn-cm-edited';
+                head.appendChild(tag);
+              }
+              if (tag) tag.textContent = d.edited;
             });
           }
         }).focus();
+        return;
+      }
+
+      if (b.classList.contains('snn-cm-act-mute')) {
+        var on = b.dataset.muted !== '1';
+        b.disabled = true;
+        post('snn_cm_user_mute', { user_id: b.dataset.user, on: on ? 1 : 0 }).then(function () {
+          b.dataset.muted = on ? '1' : '0';
+          b.textContent = on ? 'Unmute author' : 'Mute author';
+          toast(on ? 'Muted. They can still read, but cannot post.' : 'Unmuted.');
+        }).catch(function (err) {
+          toast(esc(err.message));
+        }).then(function () {
+          b.disabled = false;
+        });
         return;
       }
 
@@ -791,6 +849,97 @@
         });
       }
     });
+
+    /* Topic tools: edit, delete, pin, lock and mute. The server decides who sees each button. */
+    function topicAction(b) {
+      var act = b.dataset.topicAct;
+      var id = state.topic;
+      var inner = threadView.querySelector('.snn-cm-thread-inner');
+      if (act === 'edit') { editTopic(inner); return; }
+
+      if (act === 'delete') {
+        if (!window.confirm('Delete this topic? It will disappear from the forum.')) return;
+        b.disabled = true;
+        post('snn_cm_topic_delete', { post_id: id }).then(function () {
+          toast('Topic deleted.');
+          closeThread(true);
+          fetchList(1, true);
+        }).catch(function (err) {
+          b.disabled = false;
+          toast(esc(err.message));
+        });
+        return;
+      }
+
+      if (act === 'mute') {
+        var on = b.dataset.muted !== '1';
+        post('snn_cm_user_mute', { user_id: b.dataset.user, on: on ? 1 : 0 }).then(function () {
+          openThread(id, false);
+        }).catch(function (err) {
+          toast(esc(err.message));
+        });
+        return;
+      }
+
+      // pin_category, pin_all, unpin, lock, unlock: pins change the list, so it reloads too.
+      b.disabled = true;
+      post('snn_cm_topic_mod', { post_id: id, op: act }).then(function () {
+        openThread(id, false);
+        fetchList(1, true);
+      }).catch(function (err) {
+        b.disabled = false;
+        toast(esc(err.message));
+      });
+    }
+
+    /* Edit the open topic: title, category and message, in the same editor as replies. */
+    function editTopic(inner) {
+      var id = state.topic;
+      var head = inner.querySelector('.snn-cm-thread-head');
+      var art = inner.querySelector('.snn-cm-topic-body');
+      var tools = inner.querySelector('.snn-cm-tools');
+      var current = inner.dataset.cat || '';
+      var options = (C.categories || []).map(function (c) {
+        return '<option value="' + esc(c.slug) + '"' + (c.slug === current ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+      }).join('');
+
+      var form = document.createElement('div');
+      form.className = 'snn-cm-form snn-cm-topic-edit';
+      form.innerHTML =
+        '<label class="snn-cm-field"><span>Title</span><input class="snn-cm-input" type="text" maxlength="150"></label>' +
+        '<label class="snn-cm-field"><span>Category</span><select class="snn-cm-select">' + options + '</select></label>' +
+        '<div class="snn-cm-field"><span>Message</span><div class="snn-cm-editor-host"></div></div>';
+      var titleInput = form.querySelector('.snn-cm-input');
+      var catSelect = form.querySelector('.snn-cm-select');
+      titleInput.value = inner.querySelector('.snn-cm-thread-title').textContent;
+
+      head.hidden = true;
+      art.hidden = true;
+      if (tools) tools.hidden = true;
+      inner.insertBefore(form, head);
+
+      function close() {
+        form.remove();
+        head.hidden = false;
+        art.hidden = false;
+        if (tools) tools.hidden = false;
+      }
+
+      makeEditor(form.querySelector('.snn-cm-editor-host'), {
+        html: art.querySelector('.snn-cm-body').innerHTML,
+        submit: 'Save changes',
+        cancel: close,
+        onSubmit: function (api) {
+          var title = titleInput.value.trim();
+          if (title.length < 3) throw new Error('Titles need at least 3 characters.');
+          return post('snn_cm_topic_edit', { post_id: id, title: title, category: catSelect.value, content: api.html() }).then(function () {
+            openThread(id, false);
+            fetchList(1, true);
+          });
+        }
+      });
+      titleInput.focus();
+    }
 
     /* browser back and forward */
     window.addEventListener('popstate', function () {

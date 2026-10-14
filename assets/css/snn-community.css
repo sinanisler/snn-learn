@@ -32,10 +32,27 @@
 
 /* ---------- sidebar ---------- */
 .snn-cm-side {
+    display: flex;
+    flex-direction: column;
     border-right: 1px solid var(--snn-cm-line);
     padding: 16px 10px;
 }
 .snn-cm-side-list { display: flex; flex-direction: column; gap: 2px; }
+
+/* Search: a small box at the foot of the sidebar, under the categories. */
+.snn-cm-search { margin-top: auto; padding-top: 14px; }
+.snn-cm-search-input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--snn-cm-text);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.4;
+}
+.snn-cm-search-input:focus { border-color: var(--snn-cm-accent); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--snn-cm-accent) 18%, transparent); }
 .snn-cm-cat {
     display: flex;
     align-items: center;
@@ -155,6 +172,19 @@
     font-size: 12px;
     font-weight: 600;
 }
+.snn-cm-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.snn-cm-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.6;
+}
+.snn-cm-tag.is-pin { background: var(--snn-cm-accent-soft); color: var(--snn-cm-accent); }
 .snn-cm-empty { margin: 16px 0; color: #9ca3af; font-size: 14px; }
 .snn-cm-loading { padding: 48px 0; text-align: center; color: var(--snn-cm-muted); font-size: 14px; }
 .snn-cm-more-wrap { display: flex; justify-content: center; margin-top: 18px; }
@@ -180,6 +210,25 @@
 .snn-cm-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--snn-cm-muted); }
 .snn-cm-meta strong { color: #374151; font-weight: 600; }
 .snn-cm-meta .snn-cm-avatar { width: 28px; height: 28px; }
+/* Topic tools: author and moderator buttons between the header and the first post. */
+.snn-cm-tools { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 12px; }
+.snn-cm-tools button {
+    height: 30px;
+    padding: 0 11px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    color: #374151;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.snn-cm-tools button:hover { background: #f3f4f6; }
+.snn-cm-tools button.is-danger { color: #b91c1c; border-color: #fecaca; }
+.snn-cm-tools button.is-danger:hover { background: #fef2f2; }
+.snn-cm-tools button:disabled { opacity: .5; cursor: default; }
+.snn-cm-topic-edit { padding: 16px 0 4px; }
 .snn-cm-topic-body { padding: 18px 0 8px; }
 .snn-cm-body { font-size: 16px; line-height: 1.7; color: #1f2937; overflow-wrap: anywhere; }
 .snn-cm-body p, .snn-cm-body div { margin: 0 0 .6em; }
@@ -346,8 +395,9 @@
 /* ---------- responsive ---------- */
 @media (max-width: 820px) {
     .snn-cm { grid-template-columns: 1fr; }
-    .snn-cm-side { border-right: 0; border-bottom: 1px solid var(--snn-cm-line); padding: 10px 12px; overflow-x: auto; }
-    .snn-cm-side-list { flex-direction: row; gap: 6px; }
+    .snn-cm-side { border-right: 0; border-bottom: 1px solid var(--snn-cm-line); padding: 10px 12px; }
+    .snn-cm-side-list { flex-direction: row; gap: 6px; overflow-x: auto; }
+    .snn-cm-search { margin-top: 0; padding-top: 10px; }
     .snn-cm-cat { width: auto; flex: none; white-space: nowrap; }
     .snn-cm-cat-name { flex: none; }
     /* The chip row scrolls sideways on phones and would clip the bubble, so it is left off there. */

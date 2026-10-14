@@ -38,7 +38,7 @@ function snn_cm_defaults() {
         'allow_topics'  => 0,
         'allow_replies' => 0,
         'moderate'      => 1,         // new topics and replies wait for approval
-        'edit_hours'    => 24,        // members can edit/delete their own replies for this long
+        'edit_hours'    => 72,        // members can edit/delete their own topics and replies for this long (72 = 3 days)
         'max_length'    => 5000,      // characters per topic or reply
         'post_rate'     => 5,         // topics + replies per member per 10 minutes
         // Images
@@ -223,8 +223,32 @@ function snn_cm_is_member( $user_id = null ) {
     return (bool) apply_filters( 'snn_community_is_member', $user_id > 0, $user_id );
 }
 
+/** Moderators are administrators. They pin, lock, edit and trash any topic, edit and delete any reply, mute members and skip the approval queue. */
 function snn_cm_is_moderator() {
-    return current_user_can( 'moderate_comments' );
+    return current_user_can( 'manage_options' );
+}
+
+/** A muted member can still read the forum, but cannot post, reply or change anything. Set by a moderator. */
+function snn_cm_is_muted( $user_id = null ) {
+    $user_id = $user_id ?? get_current_user_id();
+    return $user_id > 0 && get_user_meta( (int) $user_id, 'snn_cm_muted', true ) === '1';
+}
+
+/** 'all' pins to the top of All discussions and of its category. 'category' pins to the top of its category only. */
+function snn_cm_pin_scope( $post ) {
+    $scope = (string) get_post_meta( $post->ID, '_snn_cm_pin', true );
+    return in_array( $scope, [ 'all', 'category' ], true ) ? $scope : '';
+}
+
+/** A locked topic takes no new replies from members. Moderators can still reply. */
+function snn_cm_topic_is_locked( $post ) {
+    return (string) get_post_meta( $post->ID, '_snn_cm_locked', true ) === '1';
+}
+
+/** "Edited 14 October 2026, 15:20", or '' when never edited. Readers can see a post changed after it was published. */
+function snn_cm_edited_label( $ts ) {
+    if ( ! $ts ) return '';
+    return 'Edited ' . wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), (int) $ts );
 }
 
 function snn_cm_can_view() {
@@ -233,11 +257,11 @@ function snn_cm_can_view() {
 }
 
 function snn_cm_can_post_topic() {
-    return snn_cm_enabled() && (bool) snn_cm_settings()['allow_topics'] && snn_cm_is_member();
+    return snn_cm_enabled() && (bool) snn_cm_settings()['allow_topics'] && snn_cm_is_member() && ! snn_cm_is_muted();
 }
 
 function snn_cm_can_reply() {
-    return snn_cm_enabled() && (bool) snn_cm_settings()['allow_replies'] && snn_cm_is_member();
+    return snn_cm_enabled() && (bool) snn_cm_settings()['allow_replies'] && snn_cm_is_member() && ! snn_cm_is_muted();
 }
 
 /**
@@ -265,11 +289,15 @@ function snn_cm_topic_visible( $post ) {
         && ( snn_cm_is_moderator() || ( is_user_logged_in() && (int) $post->post_author === get_current_user_id() ) );
 }
 
-/** Edit window for own replies. Moderators can always edit. */
-function snn_cm_edit_deadline( $comment ) {
+/** Edit window after a post is published. Members may edit or delete their own topics and replies inside it. 0 turns it off. */
+function snn_cm_edit_until( $gmt ) {
     $hours = (int) snn_cm_settings()['edit_hours'];
     if ( $hours <= 0 ) return 0;
-    return strtotime( $comment->comment_date_gmt . ' UTC' ) + $hours * HOUR_IN_SECONDS;
+    return strtotime( $gmt . ' UTC' ) + $hours * HOUR_IN_SECONDS;
+}
+
+function snn_cm_edit_deadline( $comment ) {
+    return snn_cm_edit_until( $comment->comment_date_gmt );
 }
 
 function snn_cm_can_modify( $comment, $user_id = null ) {
@@ -278,6 +306,23 @@ function snn_cm_can_modify( $comment, $user_id = null ) {
     if ( ! $user_id || (int) $comment->user_id !== (int) $user_id ) return false;
     $deadline = snn_cm_edit_deadline( $comment );
     return $deadline && time() < $deadline;
+}
+
+/** A member may edit their own topic inside the window. A moderator may edit any topic. */
+function snn_cm_can_edit_topic( $post ) {
+    if ( ! $post || ! is_user_logged_in() ) return false;
+    if ( snn_cm_is_moderator() ) return true;
+    if ( (int) $post->post_author !== get_current_user_id() ) return false;
+    $until = snn_cm_edit_until( $post->post_date_gmt );
+    return $until && time() < $until;
+}
+
+/** A moderator may trash any topic. A member may trash their own inside the window, and only while nobody has replied. */
+function snn_cm_can_delete_topic( $post ) {
+    if ( ! $post || ! is_user_logged_in() ) return false;
+    if ( snn_cm_is_moderator() ) return true;
+    if ( ! snn_cm_can_edit_topic( $post ) ) return false;
+    return (int) get_comments( [ 'post_id' => $post->ID, 'count' => true, 'status' => 'all' ] ) === 0;
 }
 
 /** Simple per-member rate limit: at most $limit actions per $window seconds of activity. */
@@ -676,24 +721,59 @@ function snn_cm_first_term( $post ) {
     return ( $terms && ! is_wp_error( $terms ) ) ? reset( $terms ) : null;
 }
 
-/** Newest-activity first. Topics without a timestamp (rare) fall back to publish date. */
-function snn_cm_query_topics( $category, $page, $per_page ) {
-    $args = [
-        'post_type'        => SNN_CM_PT,
-        'post_status'      => 'publish',
-        'posts_per_page'   => $per_page + 1,   // one extra row tells us whether there is a next page
-        'paged'            => max( 1, $page ),
-        'no_found_rows'    => true,
-        'ignore_sticky_posts' => true,
-        'meta_key'         => '_snn_cm_last',
-        'orderby'          => [ 'meta_value_num' => 'DESC', 'ID' => 'DESC' ],
-    ];
-    if ( $category !== '' ) {
-        $args['tax_query'] = [ [ 'taxonomy' => SNN_CM_TAX, 'field' => 'slug', 'terms' => $category ] ];
+/**
+ * One page of topics. Pinned topics come first, then newest activity (topics without a timestamp fall back to publish date).
+ *  - All discussions: topics pinned to all.
+ *  - A category: topics pinned to all, and topics pinned to that category.
+ * Search skips the pins. The page is cut from one list: the pins first, then the rest.
+ */
+function snn_cm_query_topics( $category, $page, $per_page, $search = '' ) {
+    $take = $per_page + 1;   // one extra row tells us whether there is a next page
+    $pins = [];
+
+    if ( $search === '' ) {
+        $pin_args = [
+            'post_type'           => SNN_CM_PT,
+            'post_status'         => 'publish',
+            'posts_per_page'      => -1,
+            'no_found_rows'       => true,
+            'ignore_sticky_posts' => true,
+            'orderby'             => 'date',
+            'order'               => 'DESC',
+            'meta_query'          => [ [ 'key' => '_snn_cm_pin', 'value' => $category === '' ? [ 'all' ] : [ 'all', 'category' ], 'compare' => 'IN' ] ],
+        ];
+        if ( $category !== '' ) {
+            $pin_args['tax_query'] = [ [ 'taxonomy' => SNN_CM_TAX, 'field' => 'slug', 'terms' => $category ] ];
+        }
+        $pins = get_posts( $pin_args );
     }
-    $posts = get_posts( $args );
-    $has_more = count( $posts ) > $per_page;
-    return [ 'posts' => array_slice( $posts, 0, $per_page ), 'has_more' => $has_more ];
+
+    $offset = ( max( 1, (int) $page ) - 1 ) * $per_page;   // position in the combined list: pins, then the rest
+    $posts  = array_slice( $pins, $offset, $take );
+
+    $rest = $take - count( $posts );
+    if ( $rest > 0 ) {
+        $args = [
+            'post_type'           => SNN_CM_PT,
+            'post_status'         => 'publish',
+            'posts_per_page'      => $rest,
+            'offset'              => max( 0, $offset - count( $pins ) ),
+            'no_found_rows'       => true,
+            'ignore_sticky_posts' => true,
+            'post__not_in'        => wp_list_pluck( $pins, 'ID' ),
+            'meta_key'            => '_snn_cm_last',
+            'orderby'             => [ 'meta_value_num' => 'DESC', 'ID' => 'DESC' ],
+        ];
+        if ( $category !== '' ) {
+            $args['tax_query'] = [ [ 'taxonomy' => SNN_CM_TAX, 'field' => 'slug', 'terms' => $category ] ];
+        }
+        if ( $search !== '' ) {
+            $args['s'] = $search;
+        }
+        $posts = array_merge( $posts, get_posts( $args ) );
+    }
+
+    return [ 'posts' => array_slice( $posts, 0, $per_page ), 'has_more' => count( $posts ) > $per_page ];
 }
 
 function snn_cm_time_ago( $gmt ) {
@@ -726,15 +806,18 @@ function snn_cm_row_html( $post ) {
     $replies  = (int) get_comments_number( $post );
     $last     = (int) get_post_meta( $post->ID, '_snn_cm_last', true ) ?: strtotime( $post->post_date_gmt . ' UTC' );
     $pending  = $post->post_status === 'pending';
+    $pin      = snn_cm_pin_scope( $post );
 
     ob_start(); ?>
-    <a class="snn-cm-row<?= $pending ? ' is-pending' : '' ?>" href="<?= esc_attr( snn_cm_page_url() . (int) $post->ID ) ?>" data-id="<?= (int) $post->ID ?>">
+    <a class="snn-cm-row<?= $pending ? ' is-pending' : '' ?><?= $pin ? ' is-pinned' : '' ?>" href="<?= esc_attr( snn_cm_page_url() . (int) $post->ID ) ?>" data-id="<?= (int) $post->ID ?>">
         <?= snn_cm_avatar( (int) $post->post_author, 40 ) ?>
         <span class="snn-cm-row-main">
             <span class="snn-cm-row-title"><?= esc_html( get_the_title( $post ) ?: '(no title)' ) ?></span>
             <span class="snn-cm-row-meta">
                 <strong><?= esc_html( $author ) ?></strong>
                 <?php if ( $cat ) : ?><span class="snn-cm-pill" style="--c:<?= esc_attr( snn_cm_term_color( $cat->term_id ) ) ?>"><?= esc_html( $cat->name ) ?></span><?php endif; ?>
+                <?php if ( $pin ) : ?><span class="snn-cm-tag is-pin">Pinned</span><?php endif; ?>
+                <?php if ( snn_cm_topic_is_locked( $post ) ) : ?><span class="snn-cm-tag is-lock">Locked</span><?php endif; ?>
                 <?php if ( $pending ) : ?><span class="snn-cm-pending">Awaiting moderation</span><?php endif; ?>
             </span>
         </span>
@@ -787,10 +870,12 @@ function snn_cm_comments( $post_id ) {
 }
 
 function snn_cm_comment_html( $c ) {
-    $mine     = snn_cm_can_modify( $c ) && ( get_current_user_id() === (int) $c->user_id || snn_cm_is_moderator() );
-    $edited   = get_comment_meta( $c->comment_ID, '_snn_cm_edited', true );
-    $time     = strtotime( $c->comment_date_gmt . ' UTC' );
-    $deadline = $mine ? snn_cm_edit_deadline( $c ) : 0;
+    $mine      = snn_cm_can_modify( $c ) && ( get_current_user_id() === (int) $c->user_id || snn_cm_is_moderator() );
+    $edited    = snn_cm_edited_label( (int) get_comment_meta( $c->comment_ID, '_snn_cm_edited', true ) );
+    $time      = strtotime( $c->comment_date_gmt . ' UTC' );
+    $deadline  = $mine ? snn_cm_edit_deadline( $c ) : 0;
+    // Moderators can mute the author of any reply, except another administrator.
+    $mute_user = snn_cm_is_moderator() && (int) $c->user_id && ! user_can( (int) $c->user_id, 'manage_options' ) ? (int) $c->user_id : 0;
 
     ob_start(); ?>
     <li class="snn-cm-c<?= $c->comment_approved !== '1' ? ' is-pending' : '' ?>" id="comment-<?= (int) $c->comment_ID ?>" data-id="<?= (int) $c->comment_ID ?>"<?= $mine && ! snn_cm_is_moderator() && $deadline ? ' data-until="' . (int) $deadline . '"' : '' ?>>
@@ -799,7 +884,7 @@ function snn_cm_comment_html( $c ) {
             <div class="snn-cm-c-head">
                 <strong><?= esc_html( get_comment_author( $c ) ) ?></strong>
                 <time datetime="<?= esc_attr( gmdate( 'c', $time ) ) ?>"><?= esc_html( snn_cm_time_ago( $time ) ) ?></time>
-                <?php if ( $edited ) : ?><span class="snn-cm-edited">(edited)</span><?php endif; ?>
+                <?php if ( $edited ) : ?><span class="snn-cm-edited"><?= esc_html( $edited ) ?></span><?php endif; ?>
                 <?php if ( $c->comment_approved !== '1' ) : ?><span class="snn-cm-pending">Awaiting moderation</span><?php endif; ?>
             </div>
             <div class="snn-cm-c-body"><?= snn_cm_sanitize_html( $c->comment_content ) ?></div>
@@ -807,6 +892,9 @@ function snn_cm_comment_html( $c ) {
                 <?php if ( $mine ) : ?>
                     <button type="button" class="snn-cm-act-edit">Edit</button>
                     <button type="button" class="snn-cm-act-delete">Delete</button>
+                <?php endif; ?>
+                <?php if ( $mute_user ) : ?>
+                    <button type="button" class="snn-cm-act-mute" data-user="<?= $mute_user ?>" data-muted="<?= snn_cm_is_muted( $mute_user ) ? 1 : 0 ?>"><?= snn_cm_is_muted( $mute_user ) ? 'Unmute author' : 'Mute author' ?></button>
                 <?php endif; ?>
             </div>
         </div>
@@ -822,22 +910,54 @@ function snn_cm_thread_html( $post ) {
     $comments = snn_cm_comments( $post->ID );
     $count    = count( $comments );
     $pending = $post->post_status === 'pending';
-    $can_reply = snn_cm_can_reply();
+    $is_mod  = snn_cm_is_moderator();
+    $pin     = snn_cm_pin_scope( $post );
+    $locked  = snn_cm_topic_is_locked( $post );
+    $edited  = snn_cm_edited_label( (int) get_post_meta( $post->ID, '_snn_cm_edited', true ) );
+    $can_edit   = snn_cm_can_edit_topic( $post );
+    $can_trash  = snn_cm_can_delete_topic( $post );
+    $author_id  = (int) $post->post_author;
+    $mute_user  = $is_mod && $author_id && ! user_can( $author_id, 'manage_options' ) ? $author_id : 0;
+    $can_reply  = snn_cm_can_reply() && ( ! $locked || $is_mod );
 
     ob_start(); ?>
-    <div class="snn-cm-thread-inner" data-id="<?= (int) $post->ID ?>">
+    <div class="snn-cm-thread-inner" data-id="<?= (int) $post->ID ?>" data-cat="<?= esc_attr( $cat ? $cat->slug : '' ) ?>">
         <button type="button" class="snn-cm-back"><?= snn_cm_icon( 'back' ) ?> All discussions</button>
 
         <header class="snn-cm-thread-head">
-            <?php if ( $cat ) : ?><span class="snn-cm-pill" style="--c:<?= esc_attr( snn_cm_term_color( $cat->term_id ) ) ?>"><?= esc_html( $cat->name ) ?></span><?php endif; ?>
+            <div class="snn-cm-tags">
+                <?php if ( $cat ) : ?><span class="snn-cm-pill" style="--c:<?= esc_attr( snn_cm_term_color( $cat->term_id ) ) ?>"><?= esc_html( $cat->name ) ?></span><?php endif; ?>
+                <?php if ( $pin ) : ?><span class="snn-cm-tag is-pin"><?= $pin === 'all' ? 'Pinned to all discussions' : 'Pinned in this category' ?></span><?php endif; ?>
+                <?php if ( $locked ) : ?><span class="snn-cm-tag is-lock">Locked. No new replies.</span><?php endif; ?>
+            </div>
             <h2 class="snn-cm-thread-title"><?= esc_html( get_the_title( $post ) ) ?></h2>
             <div class="snn-cm-meta">
                 <?= snn_cm_avatar( (int) $post->post_author, 28 ) ?>
                 <strong><?= esc_html( get_the_author_meta( 'display_name', $post->post_author ) ) ?></strong>
                 <span><?= esc_html( snn_cm_time_ago( strtotime( $post->post_date_gmt . ' UTC' ) ) ) ?></span>
+                <?php if ( $edited ) : ?><span class="snn-cm-edited"><?= esc_html( $edited ) ?></span><?php endif; ?>
                 <?php if ( $pending ) : ?><span class="snn-cm-pending">Awaiting moderation. Only you and moderators can see this.</span><?php endif; ?>
             </div>
         </header>
+
+        <?php if ( $can_edit || $can_trash || $is_mod ) : ?>
+            <div class="snn-cm-tools" role="toolbar" aria-label="Topic actions">
+                <?php if ( $can_edit ) : ?><button type="button" data-topic-act="edit">Edit</button><?php endif; ?>
+                <?php if ( $can_trash ) : ?><button type="button" data-topic-act="delete" class="is-danger">Delete</button><?php endif; ?>
+                <?php if ( $is_mod ) : ?>
+                    <?php if ( $pin ) : ?>
+                        <button type="button" data-topic-act="unpin">Unpin</button>
+                    <?php else : ?>
+                        <button type="button" data-topic-act="pin_category">Pin in category</button>
+                        <button type="button" data-topic-act="pin_all">Pin to all discussions</button>
+                    <?php endif; ?>
+                    <button type="button" data-topic-act="<?= $locked ? 'unlock' : 'lock' ?>"><?= $locked ? 'Unlock' : 'Lock' ?></button>
+                    <?php if ( $mute_user ) : ?>
+                        <button type="button" data-topic-act="mute" data-user="<?= $mute_user ?>" data-muted="<?= snn_cm_is_muted( $mute_user ) ? 1 : 0 ?>"><?= snn_cm_is_muted( $mute_user ) ? 'Unmute author' : 'Mute author' ?></button>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
 
         <article class="snn-cm-topic-body"><div class="snn-cm-body"><?= snn_cm_sanitize_html( $post->post_content ) ?></div></article>
 
@@ -848,8 +968,12 @@ function snn_cm_thread_html( $post ) {
             </ol>
             <?php if ( ! $comments ) : ?><p class="snn-cm-empty">No replies yet.</p><?php endif; ?>
 
-            <?php if ( $can_reply ) : ?>
+            <?php if ( $locked && ! $is_mod ) : ?>
+                <p class="snn-cm-login-note">This topic is locked. Nobody can reply.</p>
+            <?php elseif ( $can_reply ) : ?>
                 <div class="snn-cm-composer"></div>
+            <?php elseif ( snn_cm_is_muted() && snn_cm_settings()['allow_replies'] ) : ?>
+                <p class="snn-cm-login-note">A moderator has muted your account. You can read the discussion, but not reply.</p>
             <?php elseif ( ! is_user_logged_in() && snn_cm_settings()['allow_replies'] ) : ?>
                 <p class="snn-cm-login-note"><a href="<?= esc_url( wp_login_url( snn_cm_current_url() ) ) ?>">Log in</a> to join the discussion.</p>
             <?php endif; ?>
@@ -917,6 +1041,9 @@ function snn_cm_shortcode( $atts ) {
     <div class="snn-cm" style="<?= esc_attr( snn_cm_box_style() ) ?>" data-cat="<?= esc_attr( $category ) ?>" data-can-post="<?= $can_post ? 1 : 0 ?>" data-can-reply="<?= $can_reply ? 1 : 0 ?>">
         <aside class="snn-cm-side" aria-label="Categories">
             <div class="snn-cm-side-list"><?= snn_cm_sidebar_html( $category ) ?></div>
+            <div class="snn-cm-search">
+                <input type="search" class="snn-cm-search-input" placeholder="Search topics" aria-label="Search topics" maxlength="100" autocomplete="off">
+            </div>
         </aside>
 
         <section class="snn-cm-main">
@@ -930,6 +1057,8 @@ function snn_cm_shortcode( $atts ) {
 
                 <?php if ( ! is_user_logged_in() && $s['visibility'] === 'public' ) : ?>
                     <p class="snn-cm-guest-note"><a href="<?= esc_url( wp_login_url( snn_cm_current_url() ) ) ?>">Log in</a> or <a href="<?= esc_url( snn_cm_register_url() ) ?>">register</a> to post.</p>
+                <?php elseif ( snn_cm_is_muted() ) : ?>
+                    <p class="snn-cm-guest-note">A moderator has muted your account. You can read the forum, but not post.</p>
                 <?php endif; ?>
 
                 <div class="snn-cm-list" aria-live="polite">
@@ -1006,6 +1135,7 @@ function snn_cm_ajax_guard( $write = false ) {
 
     $allowed = $write ? snn_cm_is_member() : snn_cm_can_view();
     if ( ! $allowed ) wp_send_json_error( [ 'message' => 'Please log in first.', 'login' => true ], 401 );
+    if ( $write && snn_cm_is_muted() ) wp_send_json_error( [ 'message' => 'A moderator has muted your account, so you cannot post or change anything.' ], 403 );
 }
 
 function snn_cm_ajax_topic_from_request() {
@@ -1021,8 +1151,9 @@ function snn_cm_ajax_list() {
     snn_cm_ajax_guard();
     $s        = snn_cm_settings();
     $category = sanitize_title( wp_unslash( $_POST['category'] ?? '' ) );
+    $search   = mb_substr( trim( sanitize_text_field( wp_unslash( $_POST['search'] ?? '' ) ) ), 0, 100 );
     $page     = max( 1, absint( $_POST['page'] ?? 1 ) );
-    $result   = snn_cm_query_topics( $category, $page, (int) $s['per_page'] );
+    $result   = snn_cm_query_topics( $category, $page, (int) $s['per_page'], $search );
 
     $html = '';
     foreach ( $result['posts'] as $p ) $html .= snn_cm_row_html( $p );
@@ -1093,6 +1224,7 @@ function snn_cm_ajax_reply() {
     if ( ! snn_cm_can_reply() ) wp_send_json_error( [ 'message' => 'Replies are turned off.' ], 403 );
 
     $post = snn_cm_ajax_topic_from_request();
+    if ( snn_cm_topic_is_locked( $post ) && ! snn_cm_is_moderator() ) wp_send_json_error( [ 'message' => 'This topic is locked. Nobody can reply.' ], 403 );
 
     $content = snn_cm_sanitize_html( wp_unslash( $_POST['content'] ?? '' ) );
     if ( $err = snn_cm_check_content( $content ) ) wp_send_json_error( [ 'message' => $err ], 400 );
@@ -1160,12 +1292,13 @@ add_action( 'wp_ajax_snn_cm_comment_edit', function () {
     // Direct update: wp_update_comment() would run kses for members and strip the editor's formatting.
     // The stored HTML is sanitised above and again on every render.
     global $wpdb;
+    $now = time();
     $wpdb->update( $wpdb->comments, [ 'comment_content' => $content ], [ 'comment_ID' => $c->comment_ID ] );
     clean_comment_cache( $c->comment_ID );
-    update_comment_meta( $c->comment_ID, '_snn_cm_edited', time() );
+    update_comment_meta( $c->comment_ID, '_snn_cm_edited', $now );
     do_action( 'edit_comment', (int) $c->comment_ID, (array) get_comment( $c->comment_ID ) );
 
-    wp_send_json_success( [ 'html' => snn_cm_sanitize_html( $content ) ] );
+    wp_send_json_success( [ 'html' => snn_cm_sanitize_html( $content ), 'edited' => snn_cm_edited_label( $now ) ] );
 } );
 
 // Delete own reply inside the window. Replies are flat, so deleting one never takes others with it.
@@ -1175,6 +1308,96 @@ add_action( 'wp_ajax_snn_cm_comment_delete', function () {
     wp_delete_comment( $c->comment_ID, true );
     wp_send_json_success();
 } );
+
+// Edit a topic's title, category and message: its author inside the window, or a moderator.
+// Same rule as replies: the stored HTML is sanitised here and again on every render.
+add_action( 'wp_ajax_snn_cm_topic_edit', 'snn_cm_ajax_topic_edit' );
+function snn_cm_ajax_topic_edit() {
+    snn_cm_ajax_guard( true );
+    $post = snn_cm_ajax_topic_from_request();
+    if ( ! snn_cm_can_edit_topic( $post ) ) wp_send_json_error( [ 'message' => 'The edit window for this topic has closed.' ], 403 );
+
+    $title = sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) );
+    if ( mb_strlen( $title ) < 3 || mb_strlen( $title ) > 150 ) {
+        wp_send_json_error( [ 'message' => 'Titles need 3 to 150 characters.' ], 400 );
+    }
+
+    $content = snn_cm_sanitize_html( wp_unslash( $_POST['content'] ?? '' ) );
+    if ( $err = snn_cm_check_content( $content ) ) wp_send_json_error( [ 'message' => $err ], 400 );
+
+    $slug = sanitize_title( wp_unslash( $_POST['category'] ?? '' ) );
+    $term = $slug !== '' ? get_term_by( 'slug', $slug, SNN_CM_TAX ) : false;
+    if ( ! $term ) wp_send_json_error( [ 'message' => 'Pick a category that exists.' ], 400 );
+
+    // Direct update, as for replies: wp_update_post() would run kses for members and strip the editor's formatting.
+    global $wpdb;
+    $saved = $wpdb->update(
+        $wpdb->posts,
+        [
+            'post_title'        => $title,
+            'post_content'      => $content,
+            'post_modified'     => current_time( 'mysql' ),
+            'post_modified_gmt' => current_time( 'mysql', true ),
+        ],
+        [ 'ID' => (int) $post->ID ]
+    );
+    if ( false === $saved ) wp_send_json_error( [ 'message' => 'Could not save the topic.' ], 500 );
+    clean_post_cache( $post->ID );
+
+    wp_set_object_terms( (int) $post->ID, [ (int) $term->term_id ], SNN_CM_TAX );
+    update_post_meta( $post->ID, '_snn_cm_edited', time() );
+
+    wp_send_json_success();
+}
+
+// Move a topic to the trash: a moderator, or its author inside the window while nobody has replied.
+// Trashed topics keep their pictures. WordPress → Community Topics → Trash can restore them.
+add_action( 'wp_ajax_snn_cm_topic_delete', 'snn_cm_ajax_topic_delete' );
+function snn_cm_ajax_topic_delete() {
+    snn_cm_ajax_guard( true );
+    $post = snn_cm_ajax_topic_from_request();
+    if ( ! snn_cm_can_delete_topic( $post ) ) wp_send_json_error( [ 'message' => 'This topic can no longer be deleted.' ], 403 );
+    if ( ! wp_trash_post( $post->ID ) ) wp_send_json_error( [ 'message' => 'Could not delete the topic.' ], 500 );
+    wp_send_json_success();
+}
+
+// Pin, unpin, lock or unlock a topic. Moderators only.
+add_action( 'wp_ajax_snn_cm_topic_mod', 'snn_cm_ajax_topic_mod' );
+function snn_cm_ajax_topic_mod() {
+    snn_cm_ajax_guard( true );
+    if ( ! snn_cm_is_moderator() ) wp_send_json_error( [ 'message' => 'Only administrators can do that.' ], 403 );
+    $post = snn_cm_ajax_topic_from_request();
+
+    switch ( sanitize_key( $_POST['op'] ?? '' ) ) {
+        case 'pin_category': update_post_meta( $post->ID, '_snn_cm_pin', 'category' ); break;
+        case 'pin_all':      update_post_meta( $post->ID, '_snn_cm_pin', 'all' ); break;
+        case 'unpin':        delete_post_meta( $post->ID, '_snn_cm_pin' ); break;
+        case 'lock':         update_post_meta( $post->ID, '_snn_cm_locked', '1' ); break;
+        case 'unlock':       delete_post_meta( $post->ID, '_snn_cm_locked' ); break;
+        default: wp_send_json_error( [ 'message' => 'Unknown action.' ], 400 );
+    }
+    wp_send_json_success();
+}
+
+// Mute or unmute a member: they can still read, but cannot post or change anything. Moderators only.
+add_action( 'wp_ajax_snn_cm_user_mute', 'snn_cm_ajax_user_mute' );
+function snn_cm_ajax_user_mute() {
+    snn_cm_ajax_guard( true );
+    if ( ! snn_cm_is_moderator() ) wp_send_json_error( [ 'message' => 'Only administrators can do that.' ], 403 );
+
+    $user_id = absint( $_POST['user_id'] ?? 0 );
+    $user    = $user_id ? get_userdata( $user_id ) : false;
+    if ( ! $user ) wp_send_json_error( [ 'message' => 'Member not found.' ], 404 );
+    if ( user_can( $user, 'manage_options' ) ) wp_send_json_error( [ 'message' => 'Administrators cannot be muted.' ], 403 );
+
+    $on = ! empty( $_POST['on'] );
+    if ( $on ) {
+        update_user_meta( $user_id, 'snn_cm_muted', '1' );
+    } else {
+        delete_user_meta( $user_id, 'snn_cm_muted' );
+    }
+    wp_send_json_success( [ 'muted' => $on ] );
+}
 
 // Image upload: validate, convert/store, return the URL
 add_action( 'wp_ajax_snn_cm_upload',        'snn_cm_ajax_upload' );
@@ -1220,7 +1443,7 @@ add_action( 'admin_init', function () {
         'allow_topics'  => empty( $in['snn_cm_allow_topics'] ) ? 0 : 1,
         'allow_replies' => empty( $in['snn_cm_allow_replies'] ) ? 0 : 1,
         'moderate'      => empty( $in['snn_cm_moderate'] ) ? 0 : 1,
-        'edit_hours'    => $int( 'snn_cm_edit_hours', 24, 0, 8760 ),
+        'edit_hours'    => $int( 'snn_cm_edit_hours', 72, 0, 8760 ),
         'max_length'    => $int( 'snn_cm_max_length', 5000, 100, 20000 ),
         'post_rate'     => $int( 'snn_cm_post_rate', 5, 1, 100 ),
         'allow_images'  => empty( $in['snn_cm_allow_images'] ) ? 0 : 1,
@@ -1397,9 +1620,9 @@ function snn_cm_admin_page() {
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px">
                     <div>
-                        <label style="<?= $label ?>">Edit or delete own reply for (hours)</label>
+                        <label style="<?= $label ?>">Members edit or delete own topics and replies for (hours)</label>
                         <input type="number" min="0" max="8760" name="snn_cm_edit_hours" value="<?= (int) $s['edit_hours'] ?>" style="<?= $input ?>">
-                        <p style="<?= $hint ?>">0 turns member edits off.</p>
+                        <p style="<?= $hint ?>">72 = 3 days. After that the member can no longer change the post, and the edit date stays visible. Moderators can always edit. 0 turns member edits off.</p>
                     </div>
                     <div>
                         <label style="<?= $label ?>">Max characters per post</label>
@@ -1415,11 +1638,9 @@ function snn_cm_admin_page() {
 
             <!-- Categories -->
             <?php
-            $cat_rows = get_terms( [ 'taxonomy' => SNN_CM_TAX, 'hide_empty' => false ] );
-            $cat_rows = is_array( $cat_rows ) ? $cat_rows : [];
-            // Saved order first, then A–Z: the list you edit below.
-            usort( $cat_rows, fn( $a, $b ) => ( snn_cm_term_order( $a->term_id ) <=> snn_cm_term_order( $b->term_id ) ) ?: strcasecmp( $a->name, $b->name ) );
-            $front      = snn_cm_terms(); // exactly what visitors see, in the saved order
+            // The list you edit is the order visitors see (snn_cm_terms), so this table always matches the sidebar and the New topic menu.
+            $cat_rows   = snn_cm_terms();
+            $front      = $cat_rows;
             $default_id = $s['default_category'] ? (int) $s['default_category'] : (int) ( $front[0]->term_id ?? 0 );
             $cell       = 'width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit';
             $swatch     = 'width:46px;height:34px;padding:2px;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;background:#fff';
