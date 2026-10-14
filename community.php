@@ -1231,6 +1231,11 @@ add_action( 'admin_menu', function () {
     add_submenu_page( 'snn-learn', 'Community', 'Community', 'manage_options', 'snn-learn-community', 'snn_cm_admin_page' );
 }, 20 );
 
+// Categories are managed on the Community settings page, so the native taxonomy screen leaves the menu.
+add_action( 'admin_menu', function () {
+    remove_submenu_page( 'snn-learn', 'edit-tags.php?taxonomy=' . SNN_CM_TAX . '&post_type=' . SNN_CM_PT );
+}, 999 );
+
 add_action( 'admin_init', function () {
     if ( ! isset( $_POST['snn_cm_nonce'] ) || ! current_user_can( 'manage_options' ) ) return;
     check_admin_referer( 'snn_cm_save', 'snn_cm_nonce' );
@@ -1254,30 +1259,109 @@ add_action( 'admin_init', function () {
         'image_quality' => $int( 'snn_cm_image_quality', 80, 40, 100 ),
         'upload_rate'   => $int( 'snn_cm_upload_rate', 30, 1, 500 ),
         'per_page'      => $int( 'snn_cm_per_page', 20, 5, 100 ),
-        'default_category' => snn_cm_valid_term_id( absint( $in['snn_cm_default_category'] ?? 0 ) ) ? absint( $in['snn_cm_default_category'] ) : 0,
+        'default_category' => absint( $in['snn_cm_default_category'] ?? 0 ), // checked below, after categories are saved
         'category_order'   => in_array( $in['snn_cm_category_order'] ?? '', [ 'name', 'manual', 'topics' ], true ) ? $in['snn_cm_category_order'] : 'name',
         'primary_color' => sanitize_hex_color( (string) ( $in['snn_cm_primary_color'] ?? '' ) ) ?: '#0556c7',
         'max_width'     => snn_cm_valid_width( trim( (string) ( $in['snn_cm_max_width'] ?? '' ) ) ) ? trim( (string) $in['snn_cm_max_width'] ) : '100%',
     ];
 
+    // Categories first, so the default category is checked against the ones that are left.
+    $notes = snn_cm_save_categories( $in );
+    $new['default_category'] = snn_cm_valid_term_id( $new['default_category'] ) ? $new['default_category'] : 0;
+
     update_option( SNN_CM_OPTION, $new );
     if ( $new['enabled'] ) snn_cm_ensure_default_terms();
-
-    // Manual category order: one number per category, kept as term meta.
-    foreach ( (array) ( $in['snn_cm_cat_order'] ?? [] ) as $tid => $n ) {
-        $tid = absint( $tid );
-        if ( $tid && snn_cm_valid_term_id( $tid ) ) {
-            update_term_meta( $tid, 'snn_cm_order', max( 0, min( 999, (int) $n ) ) );
-        }
-    }
+    set_transient( 'snn_cm_notes_' . get_current_user_id(), $notes, MINUTE_IN_SECONDS );
 
     wp_safe_redirect( add_query_arg( [ 'page' => 'snn-learn-community', 'saved' => 1 ], admin_url( 'admin.php' ) ) );
     exit;
 } );
 
+/**
+ * Applies the Categories card of the settings page: names, descriptions, order, one new category and deletions.
+ * Rows arrive in the order they are on screen, so that order becomes the manual order.
+ * A deleted category's topics move to the default category, or to the first category left.
+ * Returns the messages to show: [ 'ok' => [...], 'error' => [...] ].
+ */
+function snn_cm_save_categories( $in ) {
+    $msg    = [ 'ok' => [], 'error' => [] ];
+    $keep   = []; // term IDs that stay, in the order on screen
+    $delete = []; // terms to remove
+    $rows   = is_array( $in['snn_cm_cats'] ?? null ) ? $in['snn_cm_cats'] : [];
+
+    foreach ( $rows as $tid => $row ) {
+        $term = absint( $tid ) ? get_term( absint( $tid ), SNN_CM_TAX ) : null;
+        if ( ! $term instanceof WP_Term ) continue;
+        $row = is_array( $row ) ? $row : [];
+
+        if ( ! empty( $row['delete'] ) ) {
+            $delete[] = $term;
+            continue;
+        }
+
+        $name = sanitize_text_field( $row['name'] ?? '' );
+        $desc = sanitize_textarea_field( $row['description'] ?? '' );
+        if ( $name === '' ) {
+            $msg['error'][] = sprintf( 'A category needs a name. "%s" was left as it was.', $term->name );
+        } elseif ( $name !== $term->name || $desc !== $term->description ) {
+            $saved = wp_update_term( (int) $term->term_id, SNN_CM_TAX, [ 'name' => $name, 'description' => $desc ] );
+            if ( is_wp_error( $saved ) ) $msg['error'][] = sprintf( '"%s" was not saved: %s', $name, $saved->get_error_message() );
+        }
+
+        update_term_meta( (int) $term->term_id, 'snn_cm_order', count( $keep ) );
+        $keep[] = (int) $term->term_id;
+    }
+
+    $add      = is_array( $in['snn_cm_new_cat'] ?? null ) ? $in['snn_cm_new_cat'] : [];
+    $add_name = sanitize_text_field( $add['name'] ?? '' );
+    if ( $add_name !== '' ) {
+        $added = wp_insert_term( $add_name, SNN_CM_TAX, [ 'description' => sanitize_textarea_field( $add['description'] ?? '' ) ] );
+        if ( is_wp_error( $added ) ) {
+            $msg['error'][] = sprintf( '"%s" was not added: %s', $add_name, $added->get_error_message() );
+        } else {
+            update_term_meta( (int) $added['term_id'], 'snn_cm_order', count( $keep ) );
+            $keep[] = (int) $added['term_id'];
+            $msg['ok'][] = sprintf( 'Added "%s".', $add_name );
+        }
+    }
+
+    if ( $delete && ! $keep ) {
+        $msg['error'][] = 'At least one category has to stay, so the last one was not deleted.';
+    } elseif ( $delete ) {
+        $default     = absint( $in['snn_cm_default_category'] ?? 0 );
+        $target      = in_array( $default, $keep, true ) ? $default : $keep[0];
+        $target_term = get_term( $target, SNN_CM_TAX );
+        $target_name = $target_term instanceof WP_Term ? $target_term->name : '';
+
+        foreach ( $delete as $term ) {
+            $topics = get_objects_in_term( (int) $term->term_id, SNN_CM_TAX );
+            $topics = is_array( $topics ) ? $topics : [];
+            foreach ( $topics as $post_id ) {
+                wp_set_object_terms( (int) $post_id, [ $target ], SNN_CM_TAX, true );
+            }
+
+            $gone = wp_delete_term( (int) $term->term_id, SNN_CM_TAX );
+            if ( is_wp_error( $gone ) || ! $gone ) {
+                $msg['error'][] = sprintf( '"%s" was not deleted.', $term->name );
+                continue;
+            }
+            $moved = count( $topics );
+            $msg['ok'][] = sprintf( 'Deleted "%s".', $term->name )
+                . ( $moved ? sprintf( ' %d %s moved to "%s".', $moved, $moved === 1 ? 'topic' : 'topics', $target_name ) : '' );
+        }
+    }
+
+    return $msg;
+}
+
 function snn_cm_admin_page() {
     if ( ! current_user_can( 'manage_options' ) ) return;
     $s = snn_cm_settings();
+
+    // Messages from the last Categories save (the save redirects, so they travel in a short-lived transient).
+    $cat_notes = get_transient( 'snn_cm_notes_' . get_current_user_id() );
+    delete_transient( 'snn_cm_notes_' . get_current_user_id() );
+    $cat_notes = is_array( $cat_notes ) ? $cat_notes : [ 'ok' => [], 'error' => [] ];
 
     $card  = 'background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px 28px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.06)';
     $h2    = 'margin:0 0 18px;font-size:16px;font-weight:700;color:#111827;border-bottom:1px solid #f3f4f6;padding-bottom:14px';
@@ -1293,12 +1377,23 @@ function snn_cm_admin_page() {
             <div class="notice notice-success is-dismissible"><p><strong>Community settings saved.</strong></p></div>
         <?php endif; ?>
 
+        <?php if ( $cat_notes['ok'] || $cat_notes['error'] ) : ?>
+            <div class="notice <?= $cat_notes['error'] ? 'notice-warning' : 'notice-success' ?> is-dismissible">
+                <p><strong>Categories</strong></p>
+                <ul style="list-style:disc;margin:0 0 12px 22px">
+                    <?php foreach ( array_merge( $cat_notes['ok'], $cat_notes['error'] ) as $line ) : ?>
+                        <li><?= esc_html( $line ) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
+
         <p style="font-size:13px;color:#4b5563;max-width:760px;line-height:1.6">
-            A members-only forum. Nothing is visible and nobody can post until you switch it on. Topics and categories are managed under
-            <a href="<?= esc_url( admin_url( 'edit.php?post_type=' . SNN_CM_PT ) ) ?>">Community Topics</a>.
+            A members-only forum. Nothing is visible and nobody can post until you switch it on. Topics are managed under
+            <a href="<?= esc_url( admin_url( 'edit.php?post_type=' . SNN_CM_PT ) ) ?>">Community Topics</a>. Categories are managed below.
         </p>
 
-        <form method="post" action="" style="margin-top:20px">
+        <form method="post" action="" id="snn-cm-form" style="margin-top:20px">
             <?php wp_nonce_field( 'snn_cm_save', 'snn_cm_nonce' ); ?>
 
             <!-- Access -->
@@ -1347,13 +1442,15 @@ function snn_cm_admin_page() {
             <?php
             $cat_rows = get_terms( [ 'taxonomy' => SNN_CM_TAX, 'hide_empty' => false ] );
             $cat_rows = is_array( $cat_rows ) ? $cat_rows : [];
-            // Numbers first, then A–Z: the list you edit below.
+            // Saved order first, then A–Z: the list you edit below.
             usort( $cat_rows, fn( $a, $b ) => ( snn_cm_term_order( $a->term_id ) <=> snn_cm_term_order( $b->term_id ) ) ?: strcasecmp( $a->name, $b->name ) );
             $front      = snn_cm_terms(); // exactly what visitors see, in the saved order
             $default_id = $s['default_category'] ? (int) $s['default_category'] : (int) ( $front[0]->term_id ?? 0 );
+            $cell       = 'width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit';
             ?>
             <div style="<?= $card ?>">
                 <h2 style="<?= $h2 ?>">Categories</h2>
+                <p style="<?= $hint ?>;margin:-6px 0 18px;max-width:760px">Add, rename, describe, reorder and delete categories here. The arrows move a category up or down. A description shows as a tooltip in the sidebar.</p>
 
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px;margin-bottom:22px">
                     <div>
@@ -1364,36 +1461,49 @@ function snn_cm_admin_page() {
                                 <option value="<?= (int) $t->term_id ?>" <?= selected( (int) $s['default_category'], (int) $t->term_id, false ) ?>><?= esc_html( $t->name ) ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <p style="<?= $hint ?>">Used when a topic is posted without a category. The New topic form starts on it, so nobody has to remember to pick one.</p>
+                        <p style="<?= $hint ?>">Used when a topic is posted without a category. The New topic form starts on it, so nobody has to remember to pick one. Topics from a deleted category move here too.</p>
                     </div>
                     <div>
                         <label style="<?= $label ?>">Order on the front end</label>
                         <select name="snn_cm_category_order" style="<?= $input ?>;max-width:100%">
                             <option value="name" <?= selected( $s['category_order'], 'name', false ) ?>>A–Z by name</option>
-                            <option value="manual" <?= selected( $s['category_order'], 'manual', false ) ?>>Manual: the numbers below</option>
+                            <option value="manual" <?= selected( $s['category_order'], 'manual', false ) ?>>Manual: the order of the list below</option>
                             <option value="topics" <?= selected( $s['category_order'], 'topics', false ) ?>>Most topics first</option>
                         </select>
-                        <p style="<?= $hint ?>">Sets the order in the sidebar and in the New topic menu.</p>
+                        <p style="<?= $hint ?>">Sets the order in the sidebar and in the New topic menu. Moving a category with the arrows switches this to Manual.</p>
                     </div>
                 </div>
 
                 <?php if ( $cat_rows ) : ?>
-                    <table class="widefat striped" style="max-width:760px;margin-bottom:18px">
-                        <thead><tr><th style="width:110px">Manual order</th><th>Category</th><th style="width:90px">Topics</th></tr></thead>
+                    <table class="widefat striped snn-cm-cats" style="margin-bottom:18px">
+                        <thead><tr><th style="width:96px">Order</th><th style="width:24%">Name</th><th>Description</th><th style="width:84px">Topics</th><th style="width:84px">Delete</th></tr></thead>
                         <tbody>
                             <?php foreach ( $cat_rows as $t ) : ?>
                             <tr>
-                                <td><input type="number" min="0" max="999" name="snn_cm_cat_order[<?= (int) $t->term_id ?>]" value="<?= snn_cm_term_order( $t->term_id ) ?>" style="width:90px" aria-label="Manual order for <?= esc_attr( $t->name ) ?>"></td>
-                                <td><strong><?= esc_html( $t->name ) ?></strong> <a href="<?= esc_url( get_edit_term_link( $t->term_id, SNN_CM_TAX, SNN_CM_PT ) ) ?>" style="font-size:12px;margin-left:8px">Edit name and description</a></td>
+                                <td>
+                                    <button type="button" class="button snn-cm-up" aria-label="Move <?= esc_attr( $t->name ) ?> up">&uarr;</button>
+                                    <button type="button" class="button snn-cm-down" aria-label="Move <?= esc_attr( $t->name ) ?> down">&darr;</button>
+                                </td>
+                                <td><input type="text" name="snn_cm_cats[<?= (int) $t->term_id ?>][name]" value="<?= esc_attr( $t->name ) ?>" maxlength="200" style="<?= $cell ?>" aria-label="Name"></td>
+                                <td><textarea name="snn_cm_cats[<?= (int) $t->term_id ?>][description]" rows="2" style="<?= $cell ?>" aria-label="Description for <?= esc_attr( $t->name ) ?>"><?= esc_textarea( $t->description ) ?></textarea></td>
                                 <td><?= (int) $t->count ?></td>
+                                <td><label style="font-size:13px;white-space:nowrap"><input type="checkbox" name="snn_cm_cats[<?= (int) $t->term_id ?>][delete]" value="1"> Delete</label></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
-                    <p style="<?= $hint ?>;margin-top:-8px;margin-bottom:18px">Lower numbers come first. The numbers are only used when the order above is set to Manual.</p>
                 <?php else : ?>
-                    <p style="font-size:13px;color:#6b7280;margin:0 0 18px">No categories yet. <a href="<?= esc_url( admin_url( 'edit-tags.php?taxonomy=' . SNN_CM_TAX . '&post_type=' . SNN_CM_PT ) ) ?>">Add the first one</a>.</p>
+                    <p style="font-size:13px;color:#6b7280;margin:0 0 18px">No categories yet. Add the first one below.</p>
                 <?php endif; ?>
+
+                <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fafafb;padding:14px 16px;margin-bottom:22px">
+                    <div style="<?= $label ?>">Add a category</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
+                        <input type="text" name="snn_cm_new_cat[name]" maxlength="200" placeholder="Category name" style="<?= $cell ?>" aria-label="New category name">
+                        <textarea name="snn_cm_new_cat[description]" rows="2" placeholder="Description (optional)" style="<?= $cell ?>" aria-label="New category description"></textarea>
+                    </div>
+                    <p style="<?= $hint ?>">Added to the end of the list when you save. Deletions are applied when you save too.</p>
+                </div>
 
                 <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fafafb;padding:14px 16px;max-width:340px">
                     <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;margin-bottom:8px">Front-end preview (saved settings)</div>
@@ -1486,7 +1596,6 @@ function snn_cm_admin_page() {
                 </p>
                 <p style="font-size:13px;margin:14px 0 0">
                     <a class="button" href="<?= esc_url( admin_url( 'edit.php?post_type=' . SNN_CM_PT ) ) ?>">Topics</a>
-                    <a class="button" href="<?= esc_url( admin_url( 'edit-tags.php?taxonomy=' . SNN_CM_TAX . '&post_type=' . SNN_CM_PT ) ) ?>">Categories</a>
                 </p>
             </div>
 
@@ -1502,6 +1611,48 @@ function snn_cm_admin_page() {
                 btn.textContent = 'Copied!';
                 setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
             });
+        });
+    })();
+    (function () {
+        // Categories: the arrows move a row; the form posts rows in screen order, so that is the saved order.
+        var table = document.querySelector('.snn-cm-cats');
+        if (!table) return;
+        var body = table.tBodies[0];
+        var order = document.querySelector('select[name="snn_cm_category_order"]');
+
+        function refresh() {
+            var rows = body.rows;
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].querySelector('.snn-cm-up').disabled = i === 0;
+                rows[i].querySelector('.snn-cm-down').disabled = i === rows.length - 1;
+            }
+        }
+        body.addEventListener('click', function (e) {
+            var btn = e.target.closest('button');
+            if (!btn) return;
+            var row = btn.closest('tr');
+            if (btn.classList.contains('snn-cm-up') && row.previousElementSibling) {
+                body.insertBefore(row, row.previousElementSibling);
+            } else if (btn.classList.contains('snn-cm-down') && row.nextElementSibling) {
+                body.insertBefore(row.nextElementSibling, row);
+            } else {
+                return;
+            }
+            if (order) order.value = 'manual'; // the order only shows on the front end in Manual
+            refresh();
+            btn.focus();
+        });
+        refresh();
+    })();
+    (function () {
+        // Deleting a category moves its topics, so ask first.
+        var form = document.getElementById('snn-cm-form');
+        if (!form) return;
+        form.addEventListener('submit', function (e) {
+            var n = form.querySelectorAll('.snn-cm-cats input[type="checkbox"]:checked').length;
+            if (n && !window.confirm('Delete ' + n + (n === 1 ? ' category' : ' categories') + '? Their topics move to another category. This cannot be undone.')) {
+                e.preventDefault();
+            }
         });
     })();
     </script>

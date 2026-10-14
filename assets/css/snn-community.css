@@ -32,7 +32,6 @@
 
 /* ---------- sidebar ---------- */
 .snn-cm-side {
-    background: #fafafb;
     border-right: 1px solid var(--snn-cm-line);
     padding: 16px 10px;
 }

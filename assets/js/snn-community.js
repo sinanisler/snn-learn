@@ -218,7 +218,7 @@
         '<span class="snn-cm-ed-sep"></span>' +
         '<button type="button" data-cmd="removeFormat" title="Clear formatting">&#10005;</button>' +
       '</div>' +
-      '<div class="snn-cm-ed-area" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="' + esc(opts.placeholder || 'Share your thoughts…') + '"></div>' +
+      '<div class="snn-cm-ed-area" data-lenis-prevent contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="' + esc(opts.placeholder || 'Share your thoughts…') + '"></div>' +
       '<div class="snn-cm-imgtools" hidden><span>Image size:</span>' + widths + '<button type="button" data-remove>Remove image</button></div>' +
       '<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple hidden>' +
       '<div class="snn-cm-ed-foot">' +
