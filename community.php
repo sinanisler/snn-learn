@@ -657,10 +657,18 @@ function snn_cm_check_content( $html ) {
 // 6. DATA HELPERS & RENDERING
 // ============================================================
 
-/** Category colours cycle through this palette, keyed by term ID. */
+/** The colour a category was given on the settings page. Without one, colours cycle through the palette by term ID. */
 function snn_cm_term_color( $term_id ) {
-    $palette = [ snn_cm_primary_color(), '#e11d48', '#ea580c', '#16a34a', '#0891b2', '#2563eb', '#c026d3', '#ca8a04' ];
+    $chosen = sanitize_hex_color( (string) get_term_meta( (int) $term_id, 'snn_cm_color', true ) );
+    if ( $chosen ) return $chosen;
+
+    $palette = snn_cm_palette();
     return $palette[ (int) $term_id % count( $palette ) ];
+}
+
+/** Default category colours, in the order they are handed out. The first one is the primary colour. */
+function snn_cm_palette() {
+    return [ snn_cm_primary_color(), '#e11d48', '#ea580c', '#16a34a', '#0891b2', '#2563eb', '#c026d3', '#ca8a04' ];
 }
 
 function snn_cm_first_term( $post ) {
@@ -1270,6 +1278,9 @@ function snn_cm_save_categories( $in ) {
             if ( is_wp_error( $saved ) ) $msg['error'][] = sprintf( '"%s" was not saved: %s', $name, $saved->get_error_message() );
         }
 
+        $color = sanitize_hex_color( (string) ( $row['color'] ?? '' ) );
+        if ( $color ) update_term_meta( (int) $term->term_id, 'snn_cm_color', $color );
+
         update_term_meta( (int) $term->term_id, 'snn_cm_order', count( $keep ) );
         $keep[] = (int) $term->term_id;
     }
@@ -1283,6 +1294,8 @@ function snn_cm_save_categories( $in ) {
         } else {
             update_term_meta( (int) $added['term_id'], 'snn_cm_order', count( $keep ) );
             $keep[] = (int) $added['term_id'];
+            $add_color = sanitize_hex_color( (string) ( $add['color'] ?? '' ) );
+            if ( $add_color ) update_term_meta( (int) $added['term_id'], 'snn_cm_color', $add_color );
             $msg['ok'][] = sprintf( 'Added "%s".', $add_name );
         }
     }
@@ -1409,6 +1422,9 @@ function snn_cm_admin_page() {
             $front      = snn_cm_terms(); // exactly what visitors see, in the saved order
             $default_id = $s['default_category'] ? (int) $s['default_category'] : (int) ( $front[0]->term_id ?? 0 );
             $cell       = 'width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit';
+            $swatch     = 'width:46px;height:34px;padding:2px;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;background:#fff';
+            $palette    = snn_cm_palette();
+            $new_color  = $palette[ count( $cat_rows ) % count( $palette ) ]; // the next colour nobody has yet
             ?>
             <div style="<?= $card ?>">
                 <h2 style="<?= $h2 ?>">Categories</h2>
@@ -1438,7 +1454,7 @@ function snn_cm_admin_page() {
 
                 <?php if ( $cat_rows ) : ?>
                     <table class="widefat striped snn-cm-cats" style="margin-bottom:18px">
-                        <thead><tr><th style="width:96px">Order</th><th style="width:24%">Name</th><th>Description</th><th style="width:84px">Topics</th><th style="width:84px">Delete</th></tr></thead>
+                        <thead><tr><th style="width:96px">Order</th><th style="width:24%">Name</th><th style="width:72px">Colour</th><th>Description</th><th style="width:84px">Topics</th><th style="width:84px">Delete</th></tr></thead>
                         <tbody>
                             <?php foreach ( $cat_rows as $t ) : ?>
                             <tr>
@@ -1447,6 +1463,7 @@ function snn_cm_admin_page() {
                                     <button type="button" class="button snn-cm-down" aria-label="Move <?= esc_attr( $t->name ) ?> down">&darr;</button>
                                 </td>
                                 <td><input type="text" name="snn_cm_cats[<?= (int) $t->term_id ?>][name]" value="<?= esc_attr( $t->name ) ?>" maxlength="200" style="<?= $cell ?>" aria-label="Name"></td>
+                                <td><input type="color" name="snn_cm_cats[<?= (int) $t->term_id ?>][color]" value="<?= esc_attr( snn_cm_term_color( $t->term_id ) ) ?>" style="<?= $swatch ?>" aria-label="Colour for <?= esc_attr( $t->name ) ?>"></td>
                                 <td><textarea name="snn_cm_cats[<?= (int) $t->term_id ?>][description]" rows="2" style="<?= $cell ?>" aria-label="Description for <?= esc_attr( $t->name ) ?>"><?= esc_textarea( $t->description ) ?></textarea></td>
                                 <td><?= (int) $t->count ?></td>
                                 <td><label style="font-size:13px;white-space:nowrap"><input type="checkbox" name="snn_cm_cats[<?= (int) $t->term_id ?>][delete]" value="1"> Delete</label></td>
@@ -1463,6 +1480,10 @@ function snn_cm_admin_page() {
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
                         <input type="text" name="snn_cm_new_cat[name]" maxlength="200" placeholder="Category name" style="<?= $cell ?>" aria-label="New category name">
                         <textarea name="snn_cm_new_cat[description]" rows="2" placeholder="Description (optional)" style="<?= $cell ?>" aria-label="New category description"></textarea>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;color:#374151">
+                        <input type="color" name="snn_cm_new_cat[color]" value="<?= esc_attr( $new_color ) ?>" style="<?= $swatch ?>" aria-label="New category colour">
+                        <span>Colour</span>
                     </div>
                     <p style="<?= $hint ?>">Added to the end of the list when you save. Deletions are applied when you save too.</p>
                 </div>
