@@ -565,13 +565,13 @@
     var sec = view.querySelector('.snn-cm-comments');
     if (!sec) return;
     var postId = sec.dataset.post;
-    var host = sec.querySelector('.snn-cm-composer[data-parent="0"]');
+    var host = sec.querySelector(':scope > .snn-cm-composer');
     if (host) {
       makeEditor(host, {
         placeholder: 'Write a reply…',
         submit: 'Reply',
         onSubmit: function (api) {
-          return post('snn_cm_reply', { post_id: postId, parent: 0, content: api.html() }).then(function (d) {
+          return post('snn_cm_reply', { post_id: postId, content: api.html() }).then(function (d) {
             var list = sec.querySelector('.snn-cm-clist');
             list.insertAdjacentHTML('beforeend', d.html);
             var none = sec.querySelector('.snn-cm-empty');
@@ -749,37 +749,8 @@
       var li = b.closest('.snn-cm-c');
       if (!li) return;
       var sec = threadView.querySelector('.snn-cm-comments');
-      var postId = sec.dataset.post;
       var main = li.querySelector(':scope > .snn-cm-c-main');
       var id = li.dataset.id;
-
-      if (b.classList.contains('snn-cm-act-reply')) {
-        var existing = main.querySelector(':scope > .snn-cm-composer');
-        if (existing) { existing.remove(); return; }
-        var holder = document.createElement('div');
-        holder.className = 'snn-cm-composer';
-        main.querySelector(':scope > .snn-cm-c-actions').after(holder);
-        var ed = makeEditor(holder, {
-          placeholder: 'Write a reply…',
-          submit: 'Reply',
-          cancel: function () { holder.remove(); },
-          onSubmit: function (api) {
-            return post('snn_cm_reply', { post_id: postId, parent: id, content: api.html() }).then(function (d) {
-              var rl = main.querySelector(':scope > .snn-cm-replies');
-              if (!rl) {
-                rl = document.createElement('ol');
-                rl.className = 'snn-cm-replies';
-                main.appendChild(rl);
-              }
-              rl.insertAdjacentHTML('beforeend', d.html);
-              holder.remove();
-              bump(sec, 1);
-            });
-          }
-        });
-        ed.focus();
-        return;
-      }
 
       if (b.classList.contains('snn-cm-act-edit')) {
         var body = main.querySelector(':scope > .snn-cm-c-body');
@@ -806,12 +777,11 @@
       }
 
       if (b.classList.contains('snn-cm-act-delete')) {
-        var nr = li.querySelectorAll('.snn-cm-replies .snn-cm-c').length;
-        if (!window.confirm(nr ? 'Delete this reply and its ' + nr + ' answer' + (nr > 1 ? 's' : '') + '?' : 'Delete this reply?')) return;
+        if (!window.confirm('Delete this reply?')) return;
         b.disabled = true;
         post('snn_cm_comment_delete', { comment_id: id }).then(function () {
           li.remove();
-          bump(sec, -1 - nr);
+          bump(sec, -1);
           if (!sec.querySelector('.snn-cm-clist > li') && !sec.querySelector('.snn-cm-empty')) {
             sec.querySelector('.snn-cm-clist').insertAdjacentHTML('afterend', '<p class="snn-cm-empty">No replies yet.</p>');
           }

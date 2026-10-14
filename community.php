@@ -6,8 +6,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 // ============================================================
 // COMMUNITY
 // ------------------------------------------------------------
-// A simple members-only forum: topics in categories, one-level
-// threaded replies, a small rich-text editor and image uploads.
+// A simple members-only forum: topics in categories, flat replies
+// (oldest first, no replies to replies), a small rich-text editor and image uploads.
 // Images are converted to WebP in the browser before they are sent;
 // the server checks every file again and stores only WebP in
 // wp-content/uploads/snn-learn-uploads/.
@@ -764,46 +764,28 @@ function snn_cm_sidebar_html( $active = '' ) {
     return ob_get_clean();
 }
 
-/** Comments visible to this viewer, arranged as top-level comments with one level of replies. */
-function snn_cm_comment_tree( $post_id ) {
+/**
+ * Comments visible to this viewer, oldest first. Replies form one flat list, like a forum thread.
+ * Replies written before this change may still have a parent; they simply show in date order.
+ */
+function snn_cm_comments( $post_id ) {
     $args = [ 'post_id' => $post_id, 'status' => 'approve', 'type' => 'comment', 'orderby' => 'comment_date_gmt', 'order' => 'ASC' ];
     if ( snn_cm_is_moderator() ) {
         $args['status'] = 'all';   // moderators see the whole queue
     } elseif ( get_current_user_id() ) {
         $args['include_unapproved'] = [ get_current_user_id() ];
     }
-    $all = get_comments( $args );
-
-    $by_id = [];
-    foreach ( $all as $c ) $by_id[ $c->comment_ID ] = $c;
-
-    $top = [];
-    $replies = [];
-    foreach ( $all as $c ) {
-        // Deeper replies (added in wp-admin) attach to their top-level ancestor.
-        $root  = $c;
-        $guard = 0;
-        while ( $root->comment_parent && isset( $by_id[ $root->comment_parent ] ) && $guard++ < 20 ) {
-            $root = $by_id[ $root->comment_parent ];
-        }
-        if ( $root === $c ) {
-            if ( ! $c->comment_parent ) $top[] = $c;
-        } elseif ( ! $root->comment_parent ) {
-            $replies[ $root->comment_ID ][] = $c;
-        }
-    }
-    return [ 'all' => $all, 'top' => $top, 'replies' => $replies ];
+    return get_comments( $args );
 }
 
-function snn_cm_comment_html( $c, $replies = [], $can_reply = false ) {
+function snn_cm_comment_html( $c ) {
     $mine     = snn_cm_can_modify( $c ) && ( get_current_user_id() === (int) $c->user_id || snn_cm_is_moderator() );
     $edited   = get_comment_meta( $c->comment_ID, '_snn_cm_edited', true );
     $time     = strtotime( $c->comment_date_gmt . ' UTC' );
-    $is_reply = (int) $c->comment_parent > 0;
     $deadline = $mine ? snn_cm_edit_deadline( $c ) : 0;
 
     ob_start(); ?>
-    <li class="snn-cm-c<?= $is_reply ? ' is-reply' : '' ?><?= $c->comment_approved !== '1' ? ' is-pending' : '' ?>" id="comment-<?= (int) $c->comment_ID ?>" data-id="<?= (int) $c->comment_ID ?>"<?= $mine && ! snn_cm_is_moderator() && $deadline ? ' data-until="' . (int) $deadline . '"' : '' ?>>
+    <li class="snn-cm-c<?= $c->comment_approved !== '1' ? ' is-pending' : '' ?>" id="comment-<?= (int) $c->comment_ID ?>" data-id="<?= (int) $c->comment_ID ?>"<?= $mine && ! snn_cm_is_moderator() && $deadline ? ' data-until="' . (int) $deadline . '"' : '' ?>>
         <?= snn_cm_avatar( $c, 36 ) ?>
         <div class="snn-cm-c-main">
             <div class="snn-cm-c-head">
@@ -814,15 +796,11 @@ function snn_cm_comment_html( $c, $replies = [], $can_reply = false ) {
             </div>
             <div class="snn-cm-c-body"><?= snn_cm_sanitize_html( $c->comment_content ) ?></div>
             <div class="snn-cm-c-actions">
-                <?php if ( $can_reply && ! $is_reply ) : ?><button type="button" class="snn-cm-act-reply">Reply</button><?php endif; ?>
                 <?php if ( $mine ) : ?>
                     <button type="button" class="snn-cm-act-edit">Edit</button>
                     <button type="button" class="snn-cm-act-delete">Delete</button>
                 <?php endif; ?>
             </div>
-            <?php if ( ! $is_reply && $replies ) : ?>
-                <ol class="snn-cm-replies"><?php foreach ( $replies as $r ) echo snn_cm_comment_html( $r ); ?></ol>
-            <?php endif; ?>
         </div>
     </li>
     <?php
@@ -833,8 +811,8 @@ function snn_cm_comment_html( $c, $replies = [], $can_reply = false ) {
 function snn_cm_thread_html( $post ) {
     $post    = get_post( $post );
     $cat     = snn_cm_first_term( $post );
-    $tree    = snn_cm_comment_tree( $post->ID );
-    $count   = count( $tree['all'] );
+    $comments = snn_cm_comments( $post->ID );
+    $count    = count( $comments );
     $pending = $post->post_status === 'pending';
     $can_reply = snn_cm_can_reply();
 
@@ -858,12 +836,12 @@ function snn_cm_thread_html( $post ) {
         <section class="snn-cm-comments" data-post="<?= (int) $post->ID ?>">
             <h3 class="snn-cm-comments-title">Replies <span class="snn-cm-comments-count"><?= $count ?></span></h3>
             <ol class="snn-cm-clist">
-                <?php foreach ( $tree['top'] as $c ) echo snn_cm_comment_html( $c, $tree['replies'][ $c->comment_ID ] ?? [], $can_reply ); ?>
+                <?php foreach ( $comments as $c ) echo snn_cm_comment_html( $c ); ?>
             </ol>
-            <?php if ( ! $tree['top'] ) : ?><p class="snn-cm-empty">No replies yet.</p><?php endif; ?>
+            <?php if ( ! $comments ) : ?><p class="snn-cm-empty">No replies yet.</p><?php endif; ?>
 
             <?php if ( $can_reply ) : ?>
-                <div class="snn-cm-composer" data-parent="0"></div>
+                <div class="snn-cm-composer"></div>
             <?php elseif ( ! is_user_logged_in() && snn_cm_settings()['allow_replies'] ) : ?>
                 <p class="snn-cm-login-note"><a href="<?= esc_url( wp_login_url( snn_cm_current_url() ) ) ?>">Log in</a> to join the discussion.</p>
             <?php endif; ?>
@@ -1100,7 +1078,7 @@ function snn_cm_ajax_topic() {
     wp_send_json_success( [ 'id' => $id, 'pending' => $pending ] );
 }
 
-// New reply (one level deep)
+// New reply. Replies are flat: every reply is a top-level comment, so any 'parent' sent by an old page is ignored.
 add_action( 'wp_ajax_snn_cm_reply', 'snn_cm_ajax_reply' );
 function snn_cm_ajax_reply() {
     snn_cm_ajax_guard( true );
@@ -1115,16 +1093,6 @@ function snn_cm_ajax_reply() {
         wp_send_json_error( [ 'message' => 'You are posting quickly. Please wait a few minutes.' ], 429 );
     }
 
-    // Replying to a reply attaches to its top-level comment.
-    $parent = absint( $_POST['parent'] ?? 0 );
-    if ( $parent ) {
-        $pc = get_comment( $parent );
-        if ( ! $pc || (int) $pc->comment_post_ID !== (int) $post->ID || ( $pc->comment_approved !== '1' && (int) $pc->user_id !== get_current_user_id() ) ) {
-            wp_send_json_error( [ 'message' => 'The comment you replied to no longer exists.' ], 404 );
-        }
-        if ( $pc->comment_parent ) $parent = (int) $pc->comment_parent;
-    }
-
     $user = wp_get_current_user();
     $data = [
         'comment_post_ID'      => $post->ID,
@@ -1132,7 +1100,7 @@ function snn_cm_ajax_reply() {
         'comment_author_email' => $user->user_email,
         'comment_author_url'   => '',
         'comment_content'      => $content,
-        'comment_parent'       => $parent,
+        'comment_parent'       => 0,
         'comment_type'         => 'comment',
         'user_id'              => $user->ID,
         'comment_author_IP'    => preg_replace( '/[^0-9a-fA-F:., ]/', '', $_SERVER['REMOTE_ADDR'] ?? '' ),
@@ -1159,8 +1127,7 @@ function snn_cm_ajax_reply() {
     do_action( 'comment_post', $id, $approved, $data );
 
     wp_send_json_success( [
-        'html'     => snn_cm_comment_html( get_comment( $id ), [], true ),
-        'parent'   => $parent,
+        'html'     => snn_cm_comment_html( get_comment( $id ) ),
         'approved' => (string) $approved === '1',
     ] );
 }
@@ -1193,15 +1160,10 @@ add_action( 'wp_ajax_snn_cm_comment_edit', function () {
     wp_send_json_success( [ 'html' => snn_cm_sanitize_html( $content ) ] );
 } );
 
-// Delete own reply inside the window (only while nobody has replied to it)
+// Delete own reply inside the window. Replies are flat, so deleting one never takes others with it.
 add_action( 'wp_ajax_snn_cm_comment_delete', function () {
     snn_cm_ajax_guard( true );
-    $c       = snn_cm_ajax_own_comment();
-    $replies = get_comments( [ 'parent' => $c->comment_ID, 'status' => 'all', 'fields' => 'ids' ] );
-    if ( $replies && ! snn_cm_is_moderator() ) {
-        wp_send_json_error( [ 'message' => 'This reply has answers, so it can only be edited.' ], 409 );
-    }
-    foreach ( $replies as $rid ) wp_delete_comment( $rid, true );
+    $c = snn_cm_ajax_own_comment();
     wp_delete_comment( $c->comment_ID, true );
     wp_send_json_success();
 } );

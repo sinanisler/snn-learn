@@ -195,9 +195,8 @@
 .snn-cm-comments { margin-top: 18px; }
 .snn-cm-comments-title { margin: 0 0 14px; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 .snn-cm-comments-count { font-size: 12px; font-weight: 600; background: #f3f4f6; color: var(--snn-cm-muted); border-radius: 99px; padding: 1px 9px; }
-.snn-cm-clist, .snn-cm-replies { list-style: none; margin: 0; padding: 0; }
+.snn-cm-clist { list-style: none; margin: 0; padding: 0; }
 .snn-cm-c { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid #f1f1f4; }
-.snn-cm-c.is-reply { padding-top: 12px; }
 .snn-cm-c.is-pending .snn-cm-c-body { opacity: .7; }
 .snn-cm-c-main { flex: 1; min-width: 0; }
 .snn-cm-c-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 14px; }
@@ -208,8 +207,6 @@
 .snn-cm-c-actions button { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--snn-cm-muted); cursor: pointer; }
 .snn-cm-c-actions button:hover { color: var(--snn-cm-text); }
 .snn-cm-c-actions .snn-cm-act-delete:hover { color: #dc2626; }
-.snn-cm-replies { margin-top: 10px; padding-left: 0; }
-.snn-cm-replies .snn-cm-c { border-top: 0; padding: 10px 0 0; }
 .snn-cm-c-main > .snn-cm-composer { margin-top: 10px; }
 .snn-cm-login-note, .snn-cm-no { color: var(--snn-cm-muted); font-size: 14px; }
 .snn-cm-login-note a { color: var(--snn-cm-accent); font-weight: 600; }
