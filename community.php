@@ -49,7 +49,34 @@ function snn_cm_defaults() {
         'upload_rate'   => 30,        // uploads per member per 10 minutes
         // Display
         'per_page'      => 20,
+        // Categories
+        'default_category' => 0,      // term ID used when a topic has no valid category; 0 = first in order
+        'category_order'   => 'name', // name | manual | topics
+        // Look
+        'primary_color' => '#0556c7', // buttons, links, active category, first category colour
+        'max_width'     => '100%',    // whole community box; 100% fills the wrapper
     ];
+}
+
+/** Theme colour. Anything that is not a valid hex colour falls back to the default. */
+function snn_cm_primary_color() {
+    return sanitize_hex_color( (string) snn_cm_settings()['primary_color'] ) ?: '#0556c7';
+}
+
+/** Accepts 320px, 80rem, 90vw, 60em or a percentage up to 100%. */
+function snn_cm_valid_width( $width ) {
+    if ( ! preg_match( '/^(\d{2,4})(px|rem|em|vw|%)$/', (string) $width, $m ) ) return false;
+    return $m[2] !== '%' || (int) $m[1] <= 100;
+}
+
+function snn_cm_max_width() {
+    $width = (string) snn_cm_settings()['max_width'];
+    return snn_cm_valid_width( $width ) ? $width : '100%';
+}
+
+/** Inline custom properties and width for the community box. */
+function snn_cm_box_style() {
+    return '--snn-cm-accent:' . snn_cm_primary_color() . ';max-width:' . snn_cm_max_width();
 }
 
 function snn_cm_settings() {
@@ -133,6 +160,53 @@ function snn_cm_ensure_default_terms() {
     if ( ! taxonomy_exists( SNN_CM_TAX ) || term_exists( 'general', SNN_CM_TAX ) ) return;
     if ( get_terms( [ 'taxonomy' => SNN_CM_TAX, 'hide_empty' => false, 'number' => 1, 'fields' => 'ids' ] ) ) return;
     wp_insert_term( 'General', SNN_CM_TAX, [ 'slug' => 'general' ] );
+}
+
+/** Manual position of a category (lower shows first). Stored as term meta; 0 when never set. */
+function snn_cm_term_order( $term_id ) {
+    return (int) get_term_meta( (int) $term_id, 'snn_cm_order', true );
+}
+
+/**
+ * Every category in the order the settings ask for:
+ *  - name:   A–Z (default)
+ *  - manual: the order numbers from the settings page, then A–Z
+ *  - topics: most published topics first, then A–Z
+ * Used by the sidebar, the new-topic form and the settings preview, so they always agree.
+ */
+function snn_cm_terms() {
+    $terms = get_terms( [ 'taxonomy' => SNN_CM_TAX, 'hide_empty' => false ] );
+    if ( is_wp_error( $terms ) || ! is_array( $terms ) ) return [];
+
+    $mode = snn_cm_settings()['category_order'];
+    usort( $terms, function ( $a, $b ) use ( $mode ) {
+        if ( $mode === 'manual' ) {
+            $cmp = snn_cm_term_order( $a->term_id ) <=> snn_cm_term_order( $b->term_id );
+        } elseif ( $mode === 'topics' ) {
+            $cmp = (int) $b->count <=> (int) $a->count;
+        } else {
+            $cmp = 0;
+        }
+        return $cmp ?: strcasecmp( $a->name, $b->name );
+    } );
+    return $terms;
+}
+
+/** The category used when a topic has none, or an unknown one. Falls back to the first in order. */
+function snn_cm_default_term() {
+    $id = (int) snn_cm_settings()['default_category'];
+    if ( $id ) {
+        $term = get_term( $id, SNN_CM_TAX );
+        if ( $term && ! is_wp_error( $term ) ) return $term;
+    }
+    $terms = snn_cm_terms();
+    return $terms ? $terms[0] : null;
+}
+
+/** True when the ID is a category of this forum. */
+function snn_cm_valid_term_id( $term_id ) {
+    $term = get_term( (int) $term_id, SNN_CM_TAX );
+    return $term instanceof WP_Term;
 }
 
 // ============================================================
@@ -585,7 +659,7 @@ function snn_cm_check_content( $html ) {
 
 /** Category colours cycle through this palette, keyed by term ID. */
 function snn_cm_term_color( $term_id ) {
-    static $palette = [ '#6d5bd0', '#e11d48', '#ea580c', '#16a34a', '#0891b2', '#2563eb', '#c026d3', '#ca8a04' ];
+    $palette = [ snn_cm_primary_color(), '#e11d48', '#ea580c', '#16a34a', '#0891b2', '#2563eb', '#c026d3', '#ca8a04' ];
     return $palette[ (int) $term_id % count( $palette ) ];
 }
 
@@ -667,8 +741,7 @@ function snn_cm_row_html( $post ) {
 
 /** Category sidebar. $active is the slug in use; '' means all discussions. */
 function snn_cm_sidebar_html( $active = '' ) {
-    $terms = get_terms( [ 'taxonomy' => SNN_CM_TAX, 'hide_empty' => false, 'orderby' => 'name' ] );
-    if ( is_wp_error( $terms ) ) $terms = [];
+    $terms = snn_cm_terms();
     $total = (int) wp_count_posts( SNN_CM_PT )->publish;
 
     ob_start(); ?>
@@ -677,11 +750,15 @@ function snn_cm_sidebar_html( $active = '' ) {
         <span class="snn-cm-cat-name">All discussions</span>
         <span class="snn-cm-cat-count"><?= $total ?></span>
     </button>
-    <?php foreach ( $terms as $t ) : ?>
-    <button type="button" class="snn-cm-cat<?= $active === $t->slug ? ' is-active' : '' ?>" data-slug="<?= esc_attr( $t->slug ) ?>" style="--c:<?= esc_attr( snn_cm_term_color( $t->term_id ) ) ?>">
+    <?php foreach ( $terms as $t ) :
+        // The category's Description (Community Topics → Categories) is shown as a hover tooltip.
+        $desc = trim( wp_strip_all_tags( (string) $t->description ) );
+    ?>
+    <button type="button" class="snn-cm-cat<?= $active === $t->slug ? ' is-active' : '' ?>" data-slug="<?= esc_attr( $t->slug ) ?>"<?= $desc !== '' ? ' data-desc="' . esc_attr( $desc ) . '"' : '' ?> style="--c:<?= esc_attr( snn_cm_term_color( $t->term_id ) ) ?>">
         <span class="snn-cm-dot" aria-hidden="true"></span>
         <span class="snn-cm-cat-name"><?= esc_html( $t->name ) ?></span>
         <span class="snn-cm-cat-count"><?= (int) $t->count ?></span>
+        <?php if ( $desc !== '' ) : ?><span class="snn-cm-sr"><?= esc_html( $desc ) ?></span><?php endif; ?>
     </button>
     <?php endforeach;
     return ob_get_clean();
@@ -806,7 +883,7 @@ function snn_cm_current_url() {
 function snn_cm_locked_html() {
     $n = (int) wp_count_posts( SNN_CM_PT )->publish;
     ob_start(); ?>
-    <div class="snn-cm snn-cm-locked-wrap">
+    <div class="snn-cm snn-cm-locked-wrap" style="<?= esc_attr( snn_cm_box_style() ) ?>">
         <div class="snn-cm-locked">
             <div class="snn-cm-locked-icon"><?= snn_cm_icon( 'lock' ) ?></div>
             <p class="snn-cm-locked-title"><?= $n ? esc_html( sprintf( _n( '%s topic from members so far.', '%s topics from members so far.', $n ), number_format_i18n( $n ) ) ) : 'The community is for members.' ?></p>
@@ -851,7 +928,7 @@ function snn_cm_shortcode( $atts ) {
     $can_reply = snn_cm_can_reply();
 
     ob_start(); ?>
-    <div class="snn-cm" data-cat="<?= esc_attr( $category ) ?>" data-can-post="<?= $can_post ? 1 : 0 ?>" data-can-reply="<?= $can_reply ? 1 : 0 ?>">
+    <div class="snn-cm" style="<?= esc_attr( snn_cm_box_style() ) ?>" data-cat="<?= esc_attr( $category ) ?>" data-can-post="<?= $can_post ? 1 : 0 ?>" data-can-reply="<?= $can_reply ? 1 : 0 ?>">
         <aside class="snn-cm-side" aria-label="Categories">
             <div class="snn-cm-side-list"><?= snn_cm_sidebar_html( $category ) ?></div>
         </aside>
@@ -922,7 +999,9 @@ function snn_cm_enqueue() {
         'loginUrl'    => wp_login_url( snn_cm_current_url() ),
         'categories'  => array_values( array_map( function ( $t ) {
             return [ 'slug' => $t->slug, 'name' => $t->name, 'color' => snn_cm_term_color( $t->term_id ) ];
-        }, (array) get_terms( [ 'taxonomy' => SNN_CM_TAX, 'hide_empty' => false, 'orderby' => 'name' ] ) ) ),
+        }, snn_cm_terms() ) ),
+        // The new-topic form starts on this category (or the active one) so nobody posts without one.
+        'defaultCategory' => ( $def = snn_cm_default_term() ) ? $def->slug : '',
     ];
     wp_add_inline_script( 'snn-community', 'window.SNN_CM = ' . wp_json_encode( $cfg ) . ';', 'before' );
 }
@@ -996,12 +1075,10 @@ function snn_cm_ajax_topic() {
         wp_send_json_error( [ 'message' => 'You are posting quickly. Please wait a few minutes.' ], 429 );
     }
 
-    $term = get_term_by( 'slug', sanitize_title( wp_unslash( $_POST['category'] ?? '' ) ), SNN_CM_TAX );
-    if ( ! $term ) $term = get_term_by( 'slug', 'general', SNN_CM_TAX );
-    if ( ! $term ) {
-        $any  = get_terms( [ 'taxonomy' => SNN_CM_TAX, 'hide_empty' => false, 'number' => 1 ] );
-        $term = ( is_array( $any ) && $any ) ? $any[0] : null;
-    }
+    // A chosen category that exists is used; anything else (none chosen, unknown, deleted) gets the default.
+    $slug = sanitize_title( wp_unslash( $_POST['category'] ?? '' ) );
+    $term = $slug !== '' ? get_term_by( 'slug', $slug, SNN_CM_TAX ) : false;
+    if ( ! $term ) $term = snn_cm_default_term();
     if ( ! $term ) wp_send_json_error( [ 'message' => 'No category is set up yet.' ], 500 );
 
     $pending = (bool) snn_cm_settings()['moderate'] && ! snn_cm_is_moderator();
@@ -1177,10 +1254,22 @@ add_action( 'admin_init', function () {
         'image_quality' => $int( 'snn_cm_image_quality', 80, 40, 100 ),
         'upload_rate'   => $int( 'snn_cm_upload_rate', 30, 1, 500 ),
         'per_page'      => $int( 'snn_cm_per_page', 20, 5, 100 ),
+        'default_category' => snn_cm_valid_term_id( absint( $in['snn_cm_default_category'] ?? 0 ) ) ? absint( $in['snn_cm_default_category'] ) : 0,
+        'category_order'   => in_array( $in['snn_cm_category_order'] ?? '', [ 'name', 'manual', 'topics' ], true ) ? $in['snn_cm_category_order'] : 'name',
+        'primary_color' => sanitize_hex_color( (string) ( $in['snn_cm_primary_color'] ?? '' ) ) ?: '#0556c7',
+        'max_width'     => snn_cm_valid_width( trim( (string) ( $in['snn_cm_max_width'] ?? '' ) ) ) ? trim( (string) $in['snn_cm_max_width'] ) : '100%',
     ];
 
     update_option( SNN_CM_OPTION, $new );
     if ( $new['enabled'] ) snn_cm_ensure_default_terms();
+
+    // Manual category order: one number per category, kept as term meta.
+    foreach ( (array) ( $in['snn_cm_cat_order'] ?? [] ) as $tid => $n ) {
+        $tid = absint( $tid );
+        if ( $tid && snn_cm_valid_term_id( $tid ) ) {
+            update_term_meta( $tid, 'snn_cm_order', max( 0, min( 999, (int) $n ) ) );
+        }
+    }
 
     wp_safe_redirect( add_query_arg( [ 'page' => 'snn-learn-community', 'saved' => 1 ], admin_url( 'admin.php' ) ) );
     exit;
@@ -1254,6 +1343,72 @@ function snn_cm_admin_page() {
                 </div>
             </div>
 
+            <!-- Categories -->
+            <?php
+            $cat_rows = get_terms( [ 'taxonomy' => SNN_CM_TAX, 'hide_empty' => false ] );
+            $cat_rows = is_array( $cat_rows ) ? $cat_rows : [];
+            // Numbers first, then A–Z: the list you edit below.
+            usort( $cat_rows, fn( $a, $b ) => ( snn_cm_term_order( $a->term_id ) <=> snn_cm_term_order( $b->term_id ) ) ?: strcasecmp( $a->name, $b->name ) );
+            $front      = snn_cm_terms(); // exactly what visitors see, in the saved order
+            $default_id = $s['default_category'] ? (int) $s['default_category'] : (int) ( $front[0]->term_id ?? 0 );
+            ?>
+            <div style="<?= $card ?>">
+                <h2 style="<?= $h2 ?>">Categories</h2>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px;margin-bottom:22px">
+                    <div>
+                        <label style="<?= $label ?>">Default category</label>
+                        <select name="snn_cm_default_category" style="<?= $input ?>;max-width:100%">
+                            <option value="0" <?= selected( 0, (int) $s['default_category'], false ) ?>>Automatic: first in the order</option>
+                            <?php foreach ( $cat_rows as $t ) : ?>
+                                <option value="<?= (int) $t->term_id ?>" <?= selected( (int) $s['default_category'], (int) $t->term_id, false ) ?>><?= esc_html( $t->name ) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p style="<?= $hint ?>">Used when a topic is posted without a category. The New topic form starts on it, so nobody has to remember to pick one.</p>
+                    </div>
+                    <div>
+                        <label style="<?= $label ?>">Order on the front end</label>
+                        <select name="snn_cm_category_order" style="<?= $input ?>;max-width:100%">
+                            <option value="name" <?= selected( $s['category_order'], 'name', false ) ?>>A–Z by name</option>
+                            <option value="manual" <?= selected( $s['category_order'], 'manual', false ) ?>>Manual: the numbers below</option>
+                            <option value="topics" <?= selected( $s['category_order'], 'topics', false ) ?>>Most topics first</option>
+                        </select>
+                        <p style="<?= $hint ?>">Sets the order in the sidebar and in the New topic menu.</p>
+                    </div>
+                </div>
+
+                <?php if ( $cat_rows ) : ?>
+                    <table class="widefat striped" style="max-width:760px;margin-bottom:18px">
+                        <thead><tr><th style="width:110px">Manual order</th><th>Category</th><th style="width:90px">Topics</th></tr></thead>
+                        <tbody>
+                            <?php foreach ( $cat_rows as $t ) : ?>
+                            <tr>
+                                <td><input type="number" min="0" max="999" name="snn_cm_cat_order[<?= (int) $t->term_id ?>]" value="<?= snn_cm_term_order( $t->term_id ) ?>" style="width:90px" aria-label="Manual order for <?= esc_attr( $t->name ) ?>"></td>
+                                <td><strong><?= esc_html( $t->name ) ?></strong> <a href="<?= esc_url( get_edit_term_link( $t->term_id, SNN_CM_TAX, SNN_CM_PT ) ) ?>" style="font-size:12px;margin-left:8px">Edit name and description</a></td>
+                                <td><?= (int) $t->count ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <p style="<?= $hint ?>;margin-top:-8px;margin-bottom:18px">Lower numbers come first. The numbers are only used when the order above is set to Manual.</p>
+                <?php else : ?>
+                    <p style="font-size:13px;color:#6b7280;margin:0 0 18px">No categories yet. <a href="<?= esc_url( admin_url( 'edit-tags.php?taxonomy=' . SNN_CM_TAX . '&post_type=' . SNN_CM_PT ) ) ?>">Add the first one</a>.</p>
+                <?php endif; ?>
+
+                <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fafafb;padding:14px 16px;max-width:340px">
+                    <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;margin-bottom:8px">Front-end preview (saved settings)</div>
+                    <div style="font-size:14px;padding:5px 4px;color:#374151">&#9776; All discussions</div>
+                    <?php foreach ( $front as $t ) : ?>
+                        <div style="display:flex;align-items:center;gap:8px;font-size:14px;padding:5px 4px;color:#111827">
+                            <span style="width:10px;height:10px;border-radius:50%;background:<?= esc_attr( snn_cm_term_color( $t->term_id ) ) ?>;flex:none"></span>
+                            <span><?= esc_html( $t->name ) ?></span>
+                            <?php if ( (int) $t->term_id === $default_id ) : ?><span style="font-size:11px;color:#6b7280">(default for new topics)</span><?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php if ( ! $front ) : ?><div style="font-size:13px;color:#9ca3af;padding:5px 4px">Nothing to show yet.</div><?php endif; ?>
+                </div>
+            </div>
+
             <!-- Images -->
             <div style="<?= $card ?>">
                 <h2 style="<?= $h2 ?>">Images</h2>
@@ -1287,6 +1442,26 @@ function snn_cm_admin_page() {
                     3. Only WebP is stored, in <code><?= esc_html( snn_cm_upload_paths()['path'] ) ?></code>, with random file names and no metadata.<br>
                     4. Pictures that no topic or reply uses are deleted after 24 hours. Deleting a topic or reply removes its pictures unless another post still uses them.
                     <?php if ( ! function_exists( 'imagewebp' ) ) : ?><br><span style="color:#b91c1c"><strong>Warning:</strong> this server's PHP GD build has no WebP support, so uploads are off.</span><?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Look -->
+            <div style="<?= $card ?>">
+                <h2 style="<?= $h2 ?>">Look</h2>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px">
+                    <div>
+                        <label style="<?= $label ?>">Primary colour</label>
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <input type="color" name="snn_cm_primary_color" value="<?= esc_attr( snn_cm_primary_color() ) ?>" style="width:46px;height:36px;padding:2px;border:1px solid #d1d5db;border-radius:8px;cursor:pointer">
+                            <code style="font-size:12px"><?= esc_html( snn_cm_primary_color() ) ?></code>
+                        </div>
+                        <p style="<?= $hint ?>">Buttons, links, the active category and the first category colour. Default #0556c7.</p>
+                    </div>
+                    <div>
+                        <label style="<?= $label ?>">Maximum width</label>
+                        <input type="text" name="snn_cm_max_width" value="<?= esc_attr( snn_cm_max_width() ) ?>" style="<?= $input ?>">
+                        <p style="<?= $hint ?>">100% fills the space around the shortcode. To limit it, enter e.g. 1200px or 80rem. Leave it at 100% if you wrap the shortcode in your own container.</p>
+                    </div>
                 </div>
             </div>
 

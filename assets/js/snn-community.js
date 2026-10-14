@@ -210,7 +210,7 @@
         '<button type="button" data-cmd="blockquote" title="Quote">&#10077;</button>' +
         '<span class="snn-cm-ed-sep"></span>' +
         '<span class="snn-cm-ed-colors">' +
-          '<button type="button" class="snn-cm-ed-colorbtn" title="Text colour" aria-label="Text colour"><span style="border-bottom:3px solid #6d5bd0;font-weight:700">A</span></button>' +
+          '<button type="button" class="snn-cm-ed-colorbtn" title="Text colour" aria-label="Text colour"><span class="snn-cm-ed-a">A</span></button>' +
           '<span class="snn-cm-ed-swatches">' + swatches + '</span>' +
         '</span>' +
         '<select title="Text size" aria-label="Text size"><option value="">Size</option><option value="2">Small</option><option value="7">Normal</option><option value="5">Large</option><option value="6">Huge</option></select>' +
@@ -655,8 +655,10 @@
       show('new');
       newView.innerHTML = '';
 
+      // Start on the category being read, or on the default when reading "All discussions".
+      var preselect = state.cat || C.defaultCategory || '';
       var options = (C.categories || []).map(function (c) {
-        return '<option value="' + esc(c.slug) + '"' + (c.slug === state.cat ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+        return '<option value="' + esc(c.slug) + '"' + (c.slug === preselect ? ' selected' : '') + '>' + esc(c.name) + '</option>';
       }).join('');
 
       var form = document.createElement('div');

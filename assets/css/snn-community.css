@@ -3,23 +3,23 @@
    Scoped to .snn-cm so it never leaks into the theme.
    ============================================================ */
 
+/* No frame: the theme or your wrapper decides the border. Colour and max width come from the
+   inline style set by the shortcode (SNN Learn → Community). */
 .snn-cm {
-    --snn-cm-accent: #6d5bd0;
-    --snn-cm-accent-soft: #f1eefc;
+    --snn-cm-accent: #0556c7;
+    --snn-cm-accent-soft: color-mix(in srgb, var(--snn-cm-accent) 10%, #fff);
     --snn-cm-text: #111827;
     --snn-cm-muted: #6b7280;
     --snn-cm-line: #e5e7eb;
-    --snn-cm-hover: #f8f7fd;
+    --snn-cm-hover: #f5f8fe;
     --snn-cm-radius: 12px;
     display: grid;
     grid-template-columns: 240px minmax(0, 1fr);
     gap: 0;
     background: #fff;
     color: var(--snn-cm-text);
-    border: 1px solid var(--snn-cm-line);
-    border-radius: var(--snn-cm-radius);
-    overflow: hidden;
-    max-width: 1200px;
+    width: 100%;
+    max-width: 100%;
     margin: 0 auto;
     font-size: 15px;
     line-height: 1.5;
@@ -53,6 +53,30 @@
     cursor: pointer;
 }
 .snn-cm-cat:hover { background: #f1f1f4; }
+.snn-cm-cat { position: relative; }
+/* Category description: shown on hover or keyboard focus. Read by screen readers via .snn-cm-sr. */
+.snn-cm-cat[data-desc]:hover::after,
+.snn-cm-cat[data-desc]:focus-visible::after {
+    content: attr(data-desc);
+    position: absolute;
+    left: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 30;
+    width: 260px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: #111827;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.45;
+    text-align: left;
+    white-space: normal;
+    pointer-events: none;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
+}
+.snn-cm-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .snn-cm-cat.is-active { background: var(--snn-cm-accent-soft); color: var(--snn-cm-accent); font-weight: 600; }
 .snn-cm-cat-icon { width: 14px; text-align: center; color: var(--snn-cm-accent); }
 .snn-cm-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c, #9ca3af); flex: none; }
@@ -120,8 +144,8 @@
     font-size: 12px;
     font-weight: 600;
     line-height: 1.5;
-    color: var(--c, #6d5bd0);
-    background: color-mix(in srgb, var(--c, #6d5bd0) 12%, #fff);
+    color: var(--c, var(--snn-cm-accent));
+    background: color-mix(in srgb, var(--c, var(--snn-cm-accent)) 12%, #fff);
 }
 .snn-cm-pending {
     display: inline-flex;
@@ -245,6 +269,7 @@
     box-shadow: 0 8px 20px rgba(0, 0, 0, .12);
 }
 .snn-cm-ed-colors.is-open .snn-cm-ed-swatches { display: grid; }
+.snn-cm-ed-a { border-bottom: 3px solid var(--snn-cm-accent); font-weight: 700; line-height: 1; }
 .snn-cm-ed-swatches button { width: 24px; height: 24px; min-width: 0; border-radius: 50%; padding: 0; border: 2px solid #fff; box-shadow: 0 0 0 1px #d1d5db; }
 .snn-cm-ed-area { min-height: 110px; max-height: 360px; overflow-y: auto; padding: 12px 14px; font-size: 15px; line-height: 1.6; outline: none; color: #1f2937; overflow-wrap: anywhere; }
 .snn-cm-ed-area:empty::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
@@ -324,6 +349,8 @@
     .snn-cm-side-list { flex-direction: row; gap: 6px; }
     .snn-cm-cat { width: auto; flex: none; white-space: nowrap; }
     .snn-cm-cat-name { flex: none; }
+    /* The chip row scrolls sideways on phones and would clip the bubble, so it is left off there. */
+    .snn-cm-cat[data-desc]::after { content: none !important; }
     .snn-cm-main { padding: 16px; }
     .snn-cm-thread-title { font-size: 22px; }
     .snn-cm-row-side { display: none; }
