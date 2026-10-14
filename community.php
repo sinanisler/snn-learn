@@ -1484,8 +1484,9 @@ function snn_cm_admin_page() {
                     <div style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;color:#374151">
                         <input type="color" name="snn_cm_new_cat[color]" value="<?= esc_attr( $new_color ) ?>" style="<?= $swatch ?>" aria-label="New category colour">
                         <span>Colour</span>
+                        <button type="submit" class="button" style="margin-left:auto">Add category</button>
                     </div>
-                    <p style="<?= $hint ?>">Added to the end of the list when you save. Deletions are applied when you save too.</p>
+                    <p style="<?= $hint ?>">Add category saves the whole page, like Save Changes, and puts the new one at the end of the list. Deletions are applied when you save too.</p>
                 </div>
 
                 <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fafafb;padding:14px 16px;max-width:340px">
