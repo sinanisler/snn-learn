@@ -120,6 +120,14 @@ add_filter( 'get_default_comment_status', function ( $status, $post_type ) {
     return $post_type === SNN_CM_PT ? 'open' : $status;
 }, 10, 2 );
 
+// Topics never take comments through WordPress's own comment form (wp-comments-post.php).
+// That endpoint would accept guests and skip the community's checks: membership, the replies
+// switch, moderation, sanitising and rate limits. All replies go through snn_cm_ajax_reply().
+add_filter( 'comments_open', function ( $open, $post_id ) {
+    $post = get_post( $post_id );
+    return ( $post && $post->post_type === SNN_CM_PT ) ? false : $open;
+}, 10, 2 );
+
 /** Create one starter category so the sidebar is never empty. */
 function snn_cm_ensure_default_terms() {
     if ( ! taxonomy_exists( SNN_CM_TAX ) || term_exists( 'general', SNN_CM_TAX ) ) return;
@@ -751,7 +759,7 @@ function snn_cm_thread_html( $post ) {
     $tree    = snn_cm_comment_tree( $post->ID );
     $count   = count( $tree['all'] );
     $pending = $post->post_status === 'pending';
-    $can_reply = snn_cm_can_reply() && comments_open( $post );
+    $can_reply = snn_cm_can_reply();
 
     ob_start(); ?>
     <div class="snn-cm-thread-inner" data-id="<?= (int) $post->ID ?>">
@@ -1022,7 +1030,6 @@ function snn_cm_ajax_reply() {
     if ( ! snn_cm_can_reply() ) wp_send_json_error( [ 'message' => 'Replies are turned off.' ], 403 );
 
     $post = snn_cm_ajax_topic_from_request();
-    if ( ! comments_open( $post ) ) wp_send_json_error( [ 'message' => 'Replies are closed for this topic.' ], 403 );
 
     $content = snn_cm_sanitize_html( wp_unslash( $_POST['content'] ?? '' ) );
     if ( $err = snn_cm_check_content( $content ) ) wp_send_json_error( [ 'message' => $err ], 400 );
@@ -1226,7 +1233,7 @@ function snn_cm_admin_page() {
                 <h2 style="<?= $h2 ?>">Posting</h2>
                 <div style="display:grid;gap:14px;margin-bottom:22px">
                     <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_allow_topics" value="1" <?= checked( 1, $s['allow_topics'], false ) ?> style="margin-top:2px"> <span>Members can start new topics <span style="display:block;font-weight:400;color:#6b7280">Off by default.</span></span></label>
-                    <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_allow_replies" value="1" <?= checked( 1, $s['allow_replies'], false ) ?> style="margin-top:2px"> <span>Members can comment and reply <span style="display:block;font-weight:400;color:#6b7280">Off by default. Guests can never comment.</span></span></label>
+                    <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_allow_replies" value="1" <?= checked( 1, $s['allow_replies'], false ) ?> style="margin-top:2px"> <span>Members can comment and reply <span style="display:block;font-weight:400;color:#6b7280">Off by default.</span></span></label>
                     <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_moderate" value="1" <?= checked( 1, $s['moderate'], false ) ?> style="margin-top:2px"> <span>Hold new topics and replies for approval <span style="display:block;font-weight:400;color:#6b7280">On by default. Moderators skip the queue. Off: posts go live at once (spam filters still apply).</span></span></label>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px">
