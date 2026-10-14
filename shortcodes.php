@@ -799,6 +799,13 @@ function snn_learn_shortcodes_page() {
             ],
         ],
         [
+            'tag'         => '[snn_learn_community]',
+            'description' => 'Renders the members-only community forum: a category sidebar, a topic list with "Load more", and topics that open in place with their replies. Guests get a register / log-in box unless the forum is set to public. Members can start topics and reply only when those options are switched on under SNN Learn → Community (both off by default). Images are converted to WebP in the browser and checked again on the server.',
+            'attributes'  => [
+                'category' => 'Optional. Category slug to open first, for example category="general". Default: all discussions.',
+            ],
+        ],
+        [
             'tag'         => '[snn_learn_user_certificate]',
             'description' => 'Renders a downloadable completion certificate drawn on a canvas element. On page load it reads cid (course ID), uid or user (learner name), certificate_id, and completion_date from URL query parameters and draws a styled certificate. Actions (Download PNG, Add to LinkedIn, Copy Link) appear below. Use button="true" to render only the action buttons panel without the certificate canvas â€” useful for placing the actions in a different layout region.',
             'attributes'  => [
