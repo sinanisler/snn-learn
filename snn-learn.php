@@ -857,6 +857,71 @@ function snn_learn_save_comment_rating_metabox( $comment_id ) {
 }
 
 // ============================================================
+// 15b. ADMIN: REVIEW & ROADMAP COMMENT VIEWS
+// ============================================================
+
+/**
+ * Comment categories shown as views on Comments:
+ *  - Reviews: comments on course content (courses, chapters, lessons).
+ *  - Roadmap: comments on roadmap items.
+ * Filtering uses WordPress's own ?post_type= comment filter, so the list query is untouched.
+ */
+function snn_learn_comment_categories() {
+    return [
+        'snn-reviews' => [ 'label' => 'Reviews', 'post_type' => snn_learn_course_pt() ],
+        'snn-roadmap' => [ 'label' => 'Roadmap', 'post_type' => SNN_RM_PT ],
+    ];
+}
+
+/** Approved and pending comments on one post type, the same set "All" counts. */
+function snn_learn_comment_category_count( $post_type ) {
+    global $wpdb;
+    return (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(c.comment_ID) FROM {$wpdb->comments} c
+         INNER JOIN {$wpdb->posts} p ON p.ID = c.comment_post_ID
+         WHERE p.post_type = %s AND c.comment_approved IN ('0', '1')",
+        $post_type
+    ) );
+}
+
+add_filter( 'comment_status_links', 'snn_learn_comment_category_links' );
+function snn_learn_comment_category_links( $links ) {
+    // Read-only list filters, same as WordPress's own comment_status/post_type args.
+    // phpcs:ignore WordPress.Security.NonceVerification
+    $active = isset( $_GET['post_type'] ) ? sanitize_key( wp_unslash( $_GET['post_type'] ) ) : '';
+    // phpcs:ignore WordPress.Security.NonceVerification
+    $status = isset( $_GET['comment_status'] ) ? sanitize_key( wp_unslash( $_GET['comment_status'] ) ) : '';
+
+    // Keep the chosen category when a status view is clicked, so Pending + Reviews works.
+    if ( $active ) {
+        foreach ( $links as $key => $html ) {
+            $links[ $key ] = preg_replace_callback( '/href="([^"]*)"/', function ( $m ) use ( $active ) {
+                return 'href="' . esc_url( add_query_arg( 'post_type', $active, html_entity_decode( $m[1] ) ) ) . '"';
+            }, $html );
+        }
+    }
+
+    foreach ( snn_learn_comment_categories() as $key => $cat ) {
+        $is_current = $active === $cat['post_type'];
+
+        // Clicking the active category again clears it. The status filter is kept either way.
+        $args = [];
+        if ( $status !== '' ) $args['comment_status'] = $status;
+        if ( ! $is_current ) $args['post_type'] = $cat['post_type'];
+
+        $links[ $key ] = sprintf(
+            '<a href="%s"%s>%s <span class="snn-cat-count">(%s)</span></a>',
+            esc_url( add_query_arg( $args, 'edit-comments.php' ) ),
+            $is_current ? ' class="current" aria-current="page"' : '',
+            esc_html( $cat['label'] ),
+            esc_html( number_format_i18n( snn_learn_comment_category_count( $cat['post_type'] ) ) )
+        );
+    }
+
+    return $links;
+}
+
+// ============================================================
 // 16. USER PERMALINKS
 // ============================================================
 
