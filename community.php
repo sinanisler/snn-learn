@@ -43,7 +43,7 @@ function snn_cm_defaults() {
         'post_rate'     => 5,         // topics + replies per member per 10 minutes
         // Images
         'allow_images'  => 1,
-        'max_images'    => 5,         // per topic or reply
+        'max_images'    => 999,       // per topic or reply
         'image_width'   => 1600,      // the browser resizes to this width before upload
         'image_quality' => 80,        // WebP quality 40–100
         'upload_rate'   => 30,        // uploads per member per 10 minutes
@@ -1224,7 +1224,7 @@ add_action( 'admin_init', function () {
         'max_length'    => $int( 'snn_cm_max_length', 5000, 100, 20000 ),
         'post_rate'     => $int( 'snn_cm_post_rate', 5, 1, 100 ),
         'allow_images'  => empty( $in['snn_cm_allow_images'] ) ? 0 : 1,
-        'max_images'    => $int( 'snn_cm_max_images', 5, 1, 10 ),
+        'max_images'    => $int( 'snn_cm_max_images', 999, 1, 999 ),
         'image_width'   => $int( 'snn_cm_image_width', 1600, 320, 2560 ),
         'image_quality' => $int( 'snn_cm_image_quality', 80, 40, 100 ),
         'upload_rate'   => $int( 'snn_cm_upload_rate', 30, 1, 500 ),
@@ -1510,7 +1510,7 @@ function snn_cm_admin_page() {
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px">
                     <div>
                         <label style="<?= $label ?>">Max images per post</label>
-                        <input type="number" min="1" max="10" name="snn_cm_max_images" value="<?= (int) $s['max_images'] ?>" style="<?= $input ?>">
+                        <input type="number" min="1" max="999" name="snn_cm_max_images" value="<?= (int) $s['max_images'] ?>" style="<?= $input ?>">
                     </div>
                     <div>
                         <label style="<?= $label ?>">Browser resize width (px)</label>
