@@ -795,6 +795,7 @@ function snn_cm_icon( $name ) {
         'comment' => '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>',
         'back'    => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
         'lock'    => '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6zm9 14H6V10h12v10zm-6-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>',
+        'pin'     => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>',
     ];
     return $icons[ $name ] ?? '';
 }
@@ -807,17 +808,22 @@ function snn_cm_row_html( $post ) {
     $last     = (int) get_post_meta( $post->ID, '_snn_cm_last', true ) ?: strtotime( $post->post_date_gmt . ' UTC' );
     $pending  = $post->post_status === 'pending';
     $pin      = snn_cm_pin_scope( $post );
+    $locked   = snn_cm_topic_is_locked( $post );
 
     ob_start(); ?>
     <a class="snn-cm-row<?= $pending ? ' is-pending' : '' ?><?= $pin ? ' is-pinned' : '' ?>" href="<?= esc_attr( snn_cm_page_url() . (int) $post->ID ) ?>" data-id="<?= (int) $post->ID ?>">
         <?= snn_cm_avatar( (int) $post->post_author, 40 ) ?>
         <span class="snn-cm-row-main">
-            <span class="snn-cm-row-title"><?= esc_html( get_the_title( $post ) ?: '(no title)' ) ?></span>
+            <span class="snn-cm-row-title">
+                <?php if ( $pin ) : ?><span class="snn-cm-row-icon is-pin" title="Pinned"><?= snn_cm_icon( 'pin' ) ?></span><?php endif; ?>
+                <?php if ( $locked ) : ?><span class="snn-cm-row-icon is-lock" title="Locked"><?= snn_cm_icon( 'lock' ) ?></span><?php endif; ?>
+                <?= esc_html( get_the_title( $post ) ?: '(no title)' ) ?>
+            </span>
             <span class="snn-cm-row-meta">
                 <strong><?= esc_html( $author ) ?></strong>
                 <?php if ( $cat ) : ?><span class="snn-cm-pill" style="--c:<?= esc_attr( snn_cm_term_color( $cat->term_id ) ) ?>"><?= esc_html( $cat->name ) ?></span><?php endif; ?>
                 <?php if ( $pin ) : ?><span class="snn-cm-tag is-pin">Pinned</span><?php endif; ?>
-                <?php if ( snn_cm_topic_is_locked( $post ) ) : ?><span class="snn-cm-tag is-lock">Locked</span><?php endif; ?>
+                <?php if ( $locked ) : ?><span class="snn-cm-tag is-lock">Locked</span><?php endif; ?>
                 <?php if ( $pending ) : ?><span class="snn-cm-pending">Awaiting moderation</span><?php endif; ?>
             </span>
         </span>
