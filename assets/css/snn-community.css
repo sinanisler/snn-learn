@@ -414,3 +414,18 @@
     .snn-cm-heading { font-size: 19px; }
     .snn-cm-locked { padding: 28px 16px; }
 }
+
+/* Answers to a reply (one level deep) */
+.snn-cm-children { list-style: none; margin: 6px 0 0; padding: 0 0 0 14px; border-left: 2px solid #f1f1f4; }
+.snn-cm-children .snn-cm-c { padding: 10px 0; border-top: 0; }
+.snn-cm-children .snn-cm-avatar { width: 28px; height: 28px; }
+
+/* Heart */
+.snn-cm-row-counts { display: inline-flex; gap: 10px; }
+.snn-cm-topic-foot { display: flex; margin-top: 12px; }
+.snn-cm .snn-cm-like { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--snn-cm-muted); cursor: pointer; }
+.snn-cm .snn-cm-like:hover:not(:disabled) { color: #e11d48; }
+.snn-cm .snn-cm-like.is-on { color: #e11d48; }
+.snn-cm .snn-cm-like:disabled { cursor: default; opacity: 1; }
+.snn-cm-topic-foot .snn-cm-like { font-size: 14px; padding: 6px 12px; border: 1px solid var(--snn-cm-line); border-radius: 999px; }
+.snn-cm-topic-foot .snn-cm-like.is-on { border-color: color-mix(in srgb, #e11d48 35%, #fff); background: #fff1f3; }

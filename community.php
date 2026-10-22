@@ -38,6 +38,8 @@ function snn_cm_defaults() {
         'allow_topics'  => 0,
         'allow_replies' => 0,
         'moderate'      => 1,         // new topics and replies wait for approval
+        'nested_replies'=> 0,         // members can answer a reply; answers sit one level under it, never deeper
+        'likes'         => 0,         // heart button on topics and replies
         'edit_hours'    => 72,        // members can edit/delete their own topics and replies for this long (72 = 3 days)
         'max_length'    => 5000,      // characters per topic or reply
         'post_rate'     => 5,         // topics + replies per member per 10 minutes
@@ -262,6 +264,39 @@ function snn_cm_can_post_topic() {
 
 function snn_cm_can_reply() {
     return snn_cm_enabled() && (bool) snn_cm_settings()['allow_replies'] && snn_cm_is_member() && ! snn_cm_is_muted();
+}
+
+function snn_cm_nested_on() {
+    return (bool) snn_cm_settings()['nested_replies'];
+}
+
+function snn_cm_likes_on() {
+    return snn_cm_enabled() && (bool) snn_cm_settings()['likes'];
+}
+
+/** User IDs who hearted a topic ('post') or reply ('comment'). Stored as an array in _snn_cm_likes meta. */
+function snn_cm_like_users( $type, $id ) {
+    $ids = get_metadata( $type, (int) $id, '_snn_cm_likes', true );
+    return is_array( $ids ) ? array_values( array_unique( array_map( 'intval', $ids ) ) ) : [];
+}
+
+/** Heart button. Members who are not muted can toggle it; everyone else sees the count only. */
+function snn_cm_like_html( $type, $id ) {
+    if ( ! snn_cm_likes_on() ) return '';
+    $users = snn_cm_like_users( $type, $id );
+    $mine  = in_array( get_current_user_id(), $users, true );
+    $can   = snn_cm_is_member() && ! snn_cm_is_muted();
+    return sprintf(
+        '<button type="button" class="snn-cm-like%s" data-like-type="%s" data-like-id="%d" aria-pressed="%s"%s title="%s">%s<span class="snn-cm-like-n">%d</span></button>',
+        $mine ? ' is-on' : '',
+        $type === 'post' ? 'topic' : 'reply',
+        (int) $id,
+        $mine ? 'true' : 'false',
+        $can ? '' : ' disabled',
+        $can ? 'Like' : 'Members can like posts',
+        snn_cm_icon( 'heart' ),
+        count( $users )
+    );
 }
 
 /**
@@ -795,6 +830,7 @@ function snn_cm_icon( $name ) {
         'comment' => '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>',
         'back'    => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
         'lock'    => '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6zm9 14H6V10h12v10zm-6-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>',
+        'heart'   => '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
         'pin'     => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>',
     ];
     return $icons[ $name ] ?? '';
@@ -828,7 +864,10 @@ function snn_cm_row_html( $post ) {
             </span>
         </span>
         <span class="snn-cm-row-side">
-            <span class="snn-cm-row-count" title="Replies"><?= snn_cm_icon( 'comment' ) ?> <?= $replies ?></span>
+            <span class="snn-cm-row-counts">
+                <?php if ( snn_cm_likes_on() && ( $likes = count( snn_cm_like_users( 'post', $post->ID ) ) ) ) : ?><span class="snn-cm-row-count" title="Likes"><?= snn_cm_icon( 'heart' ) ?> <?= $likes ?></span><?php endif; ?>
+                <span class="snn-cm-row-count" title="Replies"><?= snn_cm_icon( 'comment' ) ?> <?= $replies ?></span>
+            </span>
             <time class="snn-cm-row-time"><?= esc_html( snn_cm_time_ago( $last ) ) ?></time>
         </span>
     </a>
@@ -862,8 +901,8 @@ function snn_cm_sidebar_html( $active = '' ) {
 }
 
 /**
- * Comments visible to this viewer, oldest first. Replies form one flat list, like a forum thread.
- * Replies written before this change may still have a parent; they simply show in date order.
+ * Comments visible to this viewer, oldest first. With answers to replies off, this is one flat list.
+ * With them on, snn_cm_comment_tree() groups each answer under its top-level reply.
  */
 function snn_cm_comments( $post_id ) {
     $args = [ 'post_id' => $post_id, 'status' => 'approve', 'type' => 'comment', 'orderby' => 'comment_date_gmt', 'order' => 'ASC' ];
@@ -875,7 +914,29 @@ function snn_cm_comments( $post_id ) {
     return get_comments( $args );
 }
 
-function snn_cm_comment_html( $c ) {
+/**
+ * [ [ top-level comment, [ answers... ] ], ... ], oldest first at both levels.
+ * An answer whose reply is hidden from this viewer (pending, deleted) shows at the top level instead.
+ * Older data nested deeper is lifted to the reply at the top of its chain.
+ */
+function snn_cm_comment_tree( $comments ) {
+    $by_id = [];
+    foreach ( $comments as $c ) $by_id[ (int) $c->comment_ID ] = $c;
+    $tree = [];
+    foreach ( $comments as $c ) {
+        $root = $c;
+        for ( $i = 0; (int) $root->comment_parent && isset( $by_id[ (int) $root->comment_parent ] ) && $i < 50; $i++ ) {
+            $root = $by_id[ (int) $root->comment_parent ];
+        }
+        $rid = (int) $root->comment_ID;
+        if ( $root === $c ) $tree[ $rid ] = [ $c, $tree[ $rid ][1] ?? [] ];
+        else $tree[ $rid ][1][] = $c;
+    }
+    return array_values( $tree );
+}
+
+/** One reply. $children (answers to it) is set only when answers to replies are on. */
+function snn_cm_comment_html( $c, $children = null ) {
     $mine      = snn_cm_can_modify( $c ) && ( get_current_user_id() === (int) $c->user_id || snn_cm_is_moderator() );
     $edited    = snn_cm_edited_label( (int) get_comment_meta( $c->comment_ID, '_snn_cm_edited', true ) );
     $time      = strtotime( $c->comment_date_gmt . ' UTC' );
@@ -895,6 +956,10 @@ function snn_cm_comment_html( $c ) {
             </div>
             <div class="snn-cm-c-body"><?= snn_cm_sanitize_html( $c->comment_content ) ?></div>
             <div class="snn-cm-c-actions">
+                <?= snn_cm_like_html( 'comment', $c->comment_ID ) ?>
+                <?php if ( snn_cm_nested_on() && snn_cm_can_reply() && $c->comment_approved === '1' && ( ! snn_cm_topic_is_locked( get_post( $c->comment_post_ID ) ) || snn_cm_is_moderator() ) ) : ?>
+                    <button type="button" class="snn-cm-act-reply" data-name="<?= esc_attr( get_comment_author( $c ) ) ?>">Reply</button>
+                <?php endif; ?>
                 <?php if ( $mine ) : ?>
                     <button type="button" class="snn-cm-act-edit">Edit</button>
                     <button type="button" class="snn-cm-act-delete">Delete</button>
@@ -903,6 +968,9 @@ function snn_cm_comment_html( $c ) {
                     <button type="button" class="snn-cm-act-mute" data-user="<?= $mute_user ?>" data-muted="<?= snn_cm_is_muted( $mute_user ) ? 1 : 0 ?>"><?= snn_cm_is_muted( $mute_user ) ? 'Unmute author' : 'Mute author' ?></button>
                 <?php endif; ?>
             </div>
+            <?php if ( $children !== null ) : ?>
+                <ol class="snn-cm-children"><?php foreach ( $children as $child ) echo snn_cm_comment_html( $child ); ?></ol>
+            <?php endif; ?>
         </div>
     </li>
     <?php
@@ -965,12 +1033,19 @@ function snn_cm_thread_html( $post ) {
             </div>
         <?php endif; ?>
 
-        <article class="snn-cm-topic-body"><div class="snn-cm-body"><?= snn_cm_sanitize_html( $post->post_content ) ?></div></article>
+        <article class="snn-cm-topic-body">
+            <div class="snn-cm-body"><?= snn_cm_sanitize_html( $post->post_content ) ?></div>
+            <?php if ( snn_cm_likes_on() && $post->post_status === 'publish' ) : ?><div class="snn-cm-topic-foot"><?= snn_cm_like_html( 'post', $post->ID ) ?></div><?php endif; ?>
+        </article>
 
         <section class="snn-cm-comments" data-post="<?= (int) $post->ID ?>">
             <h3 class="snn-cm-comments-title">Replies <span class="snn-cm-comments-count"><?= $count ?></span></h3>
             <ol class="snn-cm-clist">
-                <?php foreach ( $comments as $c ) echo snn_cm_comment_html( $c ); ?>
+                <?php if ( snn_cm_nested_on() ) :
+                    foreach ( snn_cm_comment_tree( $comments ) as [ $c, $children ] ) echo snn_cm_comment_html( $c, $children );
+                else :
+                    foreach ( $comments as $c ) echo snn_cm_comment_html( $c );
+                endif; ?>
             </ol>
             <?php if ( ! $comments ) : ?><p class="snn-cm-empty">No replies yet.</p><?php endif; ?>
 
@@ -1223,7 +1298,8 @@ function snn_cm_ajax_topic() {
     wp_send_json_success( [ 'id' => $id, 'pending' => $pending ] );
 }
 
-// New reply. Replies are flat: every reply is a top-level comment, so any 'parent' sent by an old page is ignored.
+// New reply. With answers to replies on, 'parent' files it under that reply's top-level reply (one level only).
+// With them off, any 'parent' is ignored and every reply is top-level.
 add_action( 'wp_ajax_snn_cm_reply', 'snn_cm_ajax_reply' );
 function snn_cm_ajax_reply() {
     snn_cm_ajax_guard( true );
@@ -1239,6 +1315,21 @@ function snn_cm_ajax_reply() {
         wp_send_json_error( [ 'message' => 'You are posting quickly. Please wait a few minutes.' ], 429 );
     }
 
+    $parent = 0;
+    if ( snn_cm_nested_on() && ( $pid = absint( $_POST['parent'] ?? 0 ) ) ) {
+        $p = get_comment( $pid );
+        if ( ! $p || (int) $p->comment_post_ID !== (int) $post->ID || $p->comment_approved !== '1' ) {
+            wp_send_json_error( [ 'message' => 'The reply you are answering is gone.' ], 404 );
+        }
+        // Walk up to the top-level reply so answers never nest deeper than one level.
+        for ( $i = 0; (int) $p->comment_parent && $i < 50; $i++ ) {
+            $up = get_comment( (int) $p->comment_parent );
+            if ( ! $up ) break;
+            $p = $up;
+        }
+        $parent = (int) $p->comment_ID;
+    }
+
     $user = wp_get_current_user();
     $data = [
         'comment_post_ID'      => $post->ID,
@@ -1246,7 +1337,7 @@ function snn_cm_ajax_reply() {
         'comment_author_email' => $user->user_email,
         'comment_author_url'   => '',
         'comment_content'      => $content,
-        'comment_parent'       => 0,
+        'comment_parent'       => $parent,
         'comment_type'         => 'comment',
         'user_id'              => $user->ID,
         'comment_author_IP'    => preg_replace( '/[^0-9a-fA-F:., ]/', '', $_SERVER['REMOTE_ADDR'] ?? '' ),
@@ -1275,6 +1366,7 @@ function snn_cm_ajax_reply() {
     wp_send_json_success( [
         'html'     => snn_cm_comment_html( get_comment( $id ) ),
         'approved' => (string) $approved === '1',
+        'parent'   => $parent,
     ] );
 }
 
@@ -1307,7 +1399,7 @@ add_action( 'wp_ajax_snn_cm_comment_edit', function () {
     wp_send_json_success( [ 'html' => snn_cm_sanitize_html( $content ), 'edited' => snn_cm_edited_label( $now ) ] );
 } );
 
-// Delete own reply inside the window. Replies are flat, so deleting one never takes others with it.
+// Delete own reply inside the window. Deleting one never takes others with it: WordPress moves its answers up a level.
 add_action( 'wp_ajax_snn_cm_comment_delete', function () {
     snn_cm_ajax_guard( true );
     $c = snn_cm_ajax_own_comment();
@@ -1408,6 +1500,32 @@ function snn_cm_ajax_user_mute() {
 // Image upload: validate, convert/store, return the URL
 add_action( 'wp_ajax_snn_cm_upload',        'snn_cm_ajax_upload' );
 add_action( 'wp_ajax_nopriv_snn_cm_upload', 'snn_cm_ajax_upload' );
+// Toggle a heart on a topic or reply. One per member per post.
+add_action( 'wp_ajax_snn_cm_like', function () {
+    snn_cm_ajax_guard( true );
+    if ( ! snn_cm_likes_on() ) wp_send_json_error( [ 'message' => 'Likes are turned off.' ], 403 );
+
+    $id = absint( $_POST['id'] ?? 0 );
+    if ( ( $_POST['type'] ?? '' ) === 'reply' ) {
+        $c = get_comment( $id );
+        if ( ! $c || $c->comment_approved !== '1' || ! snn_cm_topic_visible( $c->comment_post_ID ) ) wp_send_json_error( [ 'message' => 'Reply not found.' ], 404 );
+        $type = 'comment';
+    } else {
+        $p = get_post( $id );
+        if ( ! snn_cm_topic_visible( $p ) || $p->post_status !== 'publish' ) wp_send_json_error( [ 'message' => 'Topic not found.' ], 404 );
+        $type = 'post';
+    }
+    if ( ! snn_cm_rate_ok( 'like', 120 ) ) wp_send_json_error( [ 'message' => 'Slow down a little.' ], 429 );
+
+    $uid   = get_current_user_id();
+    $users = snn_cm_like_users( $type, $id );
+    $on    = ! in_array( $uid, $users, true );
+    $users = $on ? array_merge( $users, [ $uid ] ) : array_values( array_diff( $users, [ $uid ] ) );
+    update_metadata( $type, $id, '_snn_cm_likes', $users );
+
+    wp_send_json_success( [ 'on' => $on, 'count' => count( $users ) ] );
+} );
+
 function snn_cm_ajax_upload() {
     snn_cm_ajax_guard( true );
     if ( ! snn_cm_images_allowed() ) wp_send_json_error( [ 'message' => 'Image uploads are turned off.' ], 403 );
@@ -1449,6 +1567,8 @@ add_action( 'admin_init', function () {
         'allow_topics'  => empty( $in['snn_cm_allow_topics'] ) ? 0 : 1,
         'allow_replies' => empty( $in['snn_cm_allow_replies'] ) ? 0 : 1,
         'moderate'      => empty( $in['snn_cm_moderate'] ) ? 0 : 1,
+        'nested_replies'=> empty( $in['snn_cm_nested_replies'] ) ? 0 : 1,
+        'likes'         => empty( $in['snn_cm_likes'] ) ? 0 : 1,
         'edit_hours'    => $int( 'snn_cm_edit_hours', 72, 0, 8760 ),
         'max_length'    => $int( 'snn_cm_max_length', 5000, 100, 20000 ),
         'post_rate'     => $int( 'snn_cm_post_rate', 5, 1, 100 ),
@@ -1623,6 +1743,8 @@ function snn_cm_admin_page() {
                     <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_allow_topics" value="1" <?= checked( 1, $s['allow_topics'], false ) ?> style="margin-top:2px"> <span>Members can start new topics <span style="display:block;font-weight:400;color:#6b7280">Off by default.</span></span></label>
                     <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_allow_replies" value="1" <?= checked( 1, $s['allow_replies'], false ) ?> style="margin-top:2px"> <span>Members can comment and reply <span style="display:block;font-weight:400;color:#6b7280">Off by default.</span></span></label>
                     <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_moderate" value="1" <?= checked( 1, $s['moderate'], false ) ?> style="margin-top:2px"> <span>Hold new topics and replies for approval <span style="display:block;font-weight:400;color:#6b7280">On by default. Moderators skip the queue. Off: posts go live at once (spam filters still apply).</span></span></label>
+                    <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_nested_replies" value="1" <?= checked( 1, $s['nested_replies'], false ) ?> style="margin-top:2px"> <span>Members can answer a specific reply <span style="display:block;font-weight:400;color:#6b7280">Off by default. Answers sit one level under the reply they answer, never deeper. Off: every reply goes at the end of the thread.</span></span></label>
+                    <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_likes" value="1" <?= checked( 1, $s['likes'], false ) ?> style="margin-top:2px"> <span>Heart button on topics and replies <span style="display:block;font-weight:400;color:#6b7280">Off by default. Members can heart each post once; everyone who can read sees the count.</span></span></label>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px">
                     <div>

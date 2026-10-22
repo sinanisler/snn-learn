@@ -782,11 +782,53 @@
       var b = e.target.closest('button');
       if (!b) return;
       if (b.dataset.topicAct) { topicAction(b); return; }
+      if (b.dataset.likeType) { toggleLike(b); return; }
       var li = b.closest('.snn-cm-c');
       if (!li) return;
       var sec = threadView.querySelector('.snn-cm-comments');
       var main = li.querySelector(':scope > .snn-cm-c-main');
       var id = li.dataset.id;
+
+      // Answer a reply. Answers sit one level deep: answering an answer files it under the same top-level reply,
+      // starting with @name so it is clear who it is for.
+      if (b.classList.contains('snn-cm-act-reply')) {
+        var top = li.parentElement.closest('.snn-cm-c') || li;
+        var topMain = top.querySelector(':scope > .snn-cm-c-main');
+        var open = topMain.querySelector(':scope > .snn-cm-answer');
+        if (open) open.remove();
+        var holder = document.createElement('div');
+        holder.className = 'snn-cm-composer snn-cm-answer';
+        topMain.appendChild(holder);
+        var ed = makeEditor(holder, {
+          html: top === li ? '' : '<p>@' + esc(b.dataset.name) + '&nbsp;</p>',
+          placeholder: 'Reply to ' + b.dataset.name + '…',
+          submit: 'Reply',
+          cancel: function () { holder.remove(); },
+          onSubmit: function (api) {
+            return post('snn_cm_reply', { post_id: sec.dataset.post, parent: id, content: api.html() }).then(function (d) {
+              var kids = topMain.querySelector(':scope > .snn-cm-children');
+              if (!kids) {
+                kids = document.createElement('ol');
+                kids.className = 'snn-cm-children';
+                holder.before(kids);
+              }
+              kids.insertAdjacentHTML('beforeend', d.html);
+              holder.remove();
+              bump(sec, 1);
+              toast(d.approved ? 'Posted.' : 'Posted. It will show once a moderator has approved it.');
+              initDeadlines(kids);
+            });
+          }
+        });
+        ed.focus();
+        var range = document.createRange();
+        range.selectNodeContents(ed.area);
+        range.collapse(false);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return;
+      }
 
       if (b.classList.contains('snn-cm-act-edit')) {
         var body = main.querySelector(':scope > .snn-cm-c-body');
@@ -838,6 +880,8 @@
         if (!window.confirm('Delete this reply?')) return;
         b.disabled = true;
         post('snn_cm_comment_delete', { comment_id: id }).then(function () {
+          // The server moves answers up a level, so they stay on the page as top-level replies.
+          li.querySelectorAll(':scope > .snn-cm-c-main > .snn-cm-children > .snn-cm-c').forEach(function (kid) { li.before(kid); });
           li.remove();
           bump(sec, -1);
           if (!sec.querySelector('.snn-cm-clist > li') && !sec.querySelector('.snn-cm-empty')) {
@@ -849,6 +893,21 @@
         });
       }
     });
+
+    /* Heart on a topic or reply. The button is disabled for anyone who cannot like. */
+    function toggleLike(b) {
+      b.disabled = true;
+      post('snn_cm_like', { type: b.dataset.likeType, id: b.dataset.likeId }).then(function (d) {
+        b.classList.toggle('is-on', d.on);
+        b.setAttribute('aria-pressed', d.on ? 'true' : 'false');
+        b.querySelector('.snn-cm-like-n').textContent = d.count;
+      }).catch(function (err) {
+        toast(esc(err.message));
+        if (err.login) needLogin();
+      }).then(function () {
+        b.disabled = false;
+      });
+    }
 
     /* Topic tools: edit, delete, pin, lock and mute. The server decides who sees each button. */
     function topicAction(b) {
