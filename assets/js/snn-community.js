@@ -744,6 +744,24 @@
       searchInput.addEventListener('search', runSearch);   // the clear cross in some browsers
     }
 
+    /* profile cards: click an avatar or name. Capture phase so the row link and thread handlers never see it. */
+    if (C.cards) {
+      root.addEventListener('click', function (e) {
+        var u = e.target.closest('.snn-cm-user');
+        if (!u) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openCard(u);
+      }, true);
+      root.addEventListener('keydown', function (e) {
+        var u = e.target.closest('.snn-cm-user');
+        if (!u || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openCard(u);
+      }, true);
+    }
+
     /* clicks */
     root.addEventListener('click', function (e) {
       var cat = e.target.closest('.snn-cm-cat');
@@ -1010,6 +1028,84 @@
     /* open a topic from the URL on first load */
     var first = parseInt(new URL(window.location.href).searchParams.get('snn_topic'), 10) || 0;
     if (first) openThread(first, false);
+  }
+
+  /* ---------- profile card ---------- */
+
+  var cardCache = {};
+  var cardEl = null;
+  var cardFor = null;
+
+  function closeCard() {
+    if (!cardEl) return;
+    cardEl.remove();
+    cardEl = cardFor = null;
+    document.removeEventListener('click', onCardOutside, true);
+    document.removeEventListener('keydown', onCardKey);
+    window.removeEventListener('resize', closeCard);
+    window.removeEventListener('scroll', placeCard, true);
+  }
+  function onCardOutside(e) {
+    if (cardEl && !cardEl.contains(e.target) && !e.target.closest('.snn-cm-user')) closeCard();
+  }
+  function onCardKey(e) { if (e.key === 'Escape') closeCard(); }
+
+  function placeCard() {
+    if (!cardEl || !cardFor) return;
+    if (!document.contains(cardFor)) { closeCard(); return; }
+    var r = cardFor.getBoundingClientRect();
+    var w = cardEl.offsetWidth, h = cardEl.offsetHeight;
+    var left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    var top = r.bottom + 8;
+    if (top + h > window.innerHeight - 8 && r.top - h - 8 > 8) top = r.top - h - 8;
+    cardEl.style.left = left + 'px';
+    cardEl.style.top = top + 'px';
+  }
+
+  function cardHtml(d) {
+    function stat(n, label) { return '<div class="snn-cm-card-stat"><b>' + esc(n) + '</b><span>' + label + '</span></div>'; }
+    return '<div class="snn-cm-card-head">' +
+        '<img src="' + esc(d.avatar) + '" alt="" width="56" height="56">' +
+        '<div><strong>' + esc(d.name) + '</strong>' +
+        (d.mod ? '<span class="snn-cm-tag is-pin">Moderator</span>' : '') +
+        (d.muted ? '<span class="snn-cm-tag is-lock">Muted</span>' : '') +
+        '<span class="snn-cm-card-joined">Joined ' + esc(d.joined) + '</span></div>' +
+      '</div>' +
+      '<div class="snn-cm-card-stats">' +
+        stat(d.topics, d.topics === 1 ? 'Topic' : 'Topics') +
+        stat(d.replies, d.replies === 1 ? 'Reply' : 'Replies') +
+        (d.hearts == null ? '' : stat(d.hearts, d.hearts === 1 ? 'Heart' : 'Hearts')) +
+      '</div>';
+  }
+
+  function openCard(el) {
+    var id = el.dataset.user;
+    if (cardEl && cardFor && cardFor.dataset.user === id) { closeCard(); return; }
+    closeCard();
+    cardEl = document.createElement('div');
+    cardEl.className = 'snn-cm-card';
+    cardEl.setAttribute('role', 'dialog');
+    var root = el.closest('.snn-cm');
+    if (root) cardEl.style.setProperty('--snn-cm-accent', getComputedStyle(root).getPropertyValue('--snn-cm-accent').trim());
+    cardEl.innerHTML = cardCache[id] ? cardHtml(cardCache[id]) : '<div class="snn-cm-card-load">Loading…</div>';
+    document.body.appendChild(cardEl);
+    cardFor = el;
+    placeCard();
+    document.addEventListener('click', onCardOutside, true);
+    document.addEventListener('keydown', onCardKey);
+    window.addEventListener('resize', closeCard);
+    window.addEventListener('scroll', placeCard, true);
+    if (cardCache[id]) return;
+
+    var mine = cardEl;
+    post('snn_cm_user_card', { user: id }).then(function (d) {
+      cardCache[id] = d;
+      if (cardEl !== mine) return;
+      mine.innerHTML = cardHtml(d);
+      placeCard();
+    }).catch(function (err) {
+      if (cardEl === mine) { mine.innerHTML = '<div class="snn-cm-card-load">' + esc(err.message) + '</div>'; placeCard(); }
+    });
   }
 
   function boot() {

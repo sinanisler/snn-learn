@@ -40,6 +40,7 @@ function snn_cm_defaults() {
         'moderate'      => 1,         // new topics and replies wait for approval
         'nested_replies'=> 0,         // members can answer a reply; answers sit one level under it, never deeper
         'likes'         => 0,         // heart button on topics and replies
+        'profile_cards' => 0,         // click a member's avatar or name to see a small card with their stats
         'edit_hours'    => 72,        // members can edit/delete their own topics and replies for this long (72 = 3 days)
         'max_length'    => 5000,      // characters per topic or reply
         'post_rate'     => 5,         // topics + replies per member per 10 minutes
@@ -303,6 +304,58 @@ function snn_cm_like_html( $type, $id ) {
  * Images need the images switch, some form of posting (no point storing files nobody can attach),
  * and GD with WebP support on the server.
  */
+function snn_cm_cards_on() {
+    return snn_cm_enabled() && (bool) snn_cm_settings()['profile_cards'];
+}
+
+function snn_cm_user_attr( $user_id ) {
+    return snn_cm_cards_on() && $user_id ? ' data-user="' . (int) $user_id . '"' : '';
+}
+
+/**
+ * Stats for one member's card. Counts only published topics and approved replies,
+ * so pending or trashed posts never show. Cached for 10 minutes.
+ */
+function snn_cm_user_stats( $user_id ) {
+    global $wpdb;
+    $key   = 'snn_cm_card_' . (int) $user_id;
+    $stats = get_transient( $key );
+    if ( is_array( $stats ) ) return $stats;
+
+    $topics = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'snn_community' AND post_status = 'publish' AND post_author = %d",
+        $user_id
+    ) );
+    $replies = (int) $wpdb->get_var( $wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->comments} c JOIN {$wpdb->posts} p ON p.ID = c.comment_post_ID
+         WHERE p.post_type = 'snn_community' AND p.post_status = 'publish' AND c.comment_approved = '1' AND c.user_id = %d",
+        $user_id
+    ) );
+
+    $hearts = 0;
+    $rows   = array_merge(
+        $wpdb->get_col( $wpdb->prepare(
+            "SELECT m.meta_value FROM {$wpdb->postmeta} m JOIN {$wpdb->posts} p ON p.ID = m.post_id
+             WHERE m.meta_key = '_snn_cm_likes' AND p.post_type = 'snn_community' AND p.post_status = 'publish' AND p.post_author = %d",
+            $user_id
+        ) ),
+        $wpdb->get_col( $wpdb->prepare(
+            "SELECT m.meta_value FROM {$wpdb->commentmeta} m JOIN {$wpdb->comments} c ON c.comment_ID = m.comment_id
+             JOIN {$wpdb->posts} p ON p.ID = c.comment_post_ID
+             WHERE m.meta_key = '_snn_cm_likes' AND p.post_type = 'snn_community' AND p.post_status = 'publish' AND c.comment_approved = '1' AND c.user_id = %d",
+            $user_id
+        ) )
+    );
+    foreach ( $rows as $v ) {
+        $ids = maybe_unserialize( $v );
+        if ( is_array( $ids ) ) $hearts += count( array_unique( array_map( 'intval', $ids ) ) );
+    }
+
+    $stats = [ 'topics' => $topics, 'replies' => $replies, 'hearts' => $hearts ];
+    set_transient( $key, $stats, 10 * MINUTE_IN_SECONDS );
+    return $stats;
+}
+
 function snn_cm_images_allowed() {
     $s = snn_cm_settings();
     return (bool) $s['allow_images']
@@ -817,12 +870,22 @@ function snn_cm_time_ago( $gmt ) {
 }
 
 function snn_cm_avatar( $user_id_or_comment, $size = 40 ) {
+    $uid = is_object( $user_id_or_comment ) ? (int) $user_id_or_comment->user_id : (int) $user_id_or_comment;
     return sprintf(
-        '<img class="snn-cm-avatar" src="%s" alt="" width="%d" height="%d" loading="lazy">',
+        '<img class="snn-cm-avatar%s" src="%s" alt="" width="%d" height="%d" loading="lazy"%s>',
+        snn_cm_cards_on() && $uid ? ' snn-cm-user' : '',
         esc_url( get_avatar_url( $user_id_or_comment, [ 'size' => $size * 2 ] ) ),
         (int) $size,
-        (int) $size
+        (int) $size,
+        snn_cm_user_attr( $uid )
     );
+}
+
+/** Author name; opens the profile card when cards are on. */
+function snn_cm_name( $user_id, $name ) {
+    $uid = (int) $user_id;
+    if ( ! snn_cm_cards_on() || ! $uid ) return '<strong>' . esc_html( $name ) . '</strong>';
+    return '<strong class="snn-cm-user" role="button" tabindex="0"' . snn_cm_user_attr( $uid ) . '>' . esc_html( $name ) . '</strong>';
 }
 
 function snn_cm_icon( $name ) {
@@ -856,7 +919,7 @@ function snn_cm_row_html( $post ) {
                 <?= esc_html( get_the_title( $post ) ?: '(no title)' ) ?>
             </span>
             <span class="snn-cm-row-meta">
-                <strong><?= esc_html( $author ) ?></strong>
+                <?= snn_cm_name( $post->post_author, $author ) ?>
                 <?php if ( $cat ) : ?><span class="snn-cm-pill" style="--c:<?= esc_attr( snn_cm_term_color( $cat->term_id ) ) ?>"><?= esc_html( $cat->name ) ?></span><?php endif; ?>
                 <?php if ( $pin ) : ?><span class="snn-cm-tag is-pin">Pinned</span><?php endif; ?>
                 <?php if ( $locked ) : ?><span class="snn-cm-tag is-lock">Locked</span><?php endif; ?>
@@ -949,7 +1012,7 @@ function snn_cm_comment_html( $c, $children = null ) {
         <?= snn_cm_avatar( $c, 36 ) ?>
         <div class="snn-cm-c-main">
             <div class="snn-cm-c-head">
-                <strong><?= esc_html( get_comment_author( $c ) ) ?></strong>
+                <?= snn_cm_name( $c->user_id, get_comment_author( $c ) ) ?>
                 <time datetime="<?= esc_attr( gmdate( 'c', $time ) ) ?>"><?= esc_html( snn_cm_time_ago( $time ) ) ?></time>
                 <?php if ( $edited ) : ?><span class="snn-cm-edited"><?= esc_html( $edited ) ?></span><?php endif; ?>
                 <?php if ( $c->comment_approved !== '1' ) : ?><span class="snn-cm-pending">Awaiting moderation</span><?php endif; ?>
@@ -1007,7 +1070,7 @@ function snn_cm_thread_html( $post ) {
             <h2 class="snn-cm-thread-title"><?= esc_html( get_the_title( $post ) ) ?></h2>
             <div class="snn-cm-meta">
                 <?= snn_cm_avatar( (int) $post->post_author, 28 ) ?>
-                <strong><?= esc_html( get_the_author_meta( 'display_name', $post->post_author ) ) ?></strong>
+                <?= snn_cm_name( $post->post_author, get_the_author_meta( 'display_name', $post->post_author ) ) ?>
                 <span><?= esc_html( snn_cm_time_ago( strtotime( $post->post_date_gmt . ' UTC' ) ) ) ?></span>
                 <?php if ( $edited ) : ?><span class="snn-cm-edited"><?= esc_html( $edited ) ?></span><?php endif; ?>
                 <?php if ( $pending ) : ?><span class="snn-cm-pending">Awaiting moderation. Only you and moderators can see this.</span><?php endif; ?>
@@ -1193,6 +1256,7 @@ function snn_cm_enqueue() {
         'maxLength'   => (int) $s['max_length'],
         'registerUrl' => snn_cm_register_url(),
         'loginUrl'    => wp_login_url( snn_cm_current_url() ),
+        'cards'       => snn_cm_cards_on(),
         'categories'  => array_values( array_map( function ( $t ) {
             return [ 'slug' => $t->slug, 'name' => $t->name, 'color' => snn_cm_term_color( $t->term_id ) ];
         }, snn_cm_terms() ) ),
@@ -1497,6 +1561,28 @@ function snn_cm_ajax_user_mute() {
     wp_send_json_success( [ 'muted' => $on ] );
 }
 
+// Profile card for one member. Anyone who can read the forum can see it.
+add_action( 'wp_ajax_snn_cm_user_card',        'snn_cm_ajax_user_card' );
+add_action( 'wp_ajax_nopriv_snn_cm_user_card', 'snn_cm_ajax_user_card' );
+function snn_cm_ajax_user_card() {
+    snn_cm_ajax_guard();
+    if ( ! snn_cm_cards_on() ) wp_send_json_error( [ 'message' => 'Profile cards are turned off.' ], 403 );
+    $user = get_userdata( absint( $_POST['user'] ?? 0 ) );
+    if ( ! $user ) wp_send_json_error( [ 'message' => 'Member not found.' ], 404 );
+
+    $stats = snn_cm_user_stats( $user->ID );
+    wp_send_json_success( [
+        'name'    => $user->display_name,
+        'avatar'  => get_avatar_url( $user->ID, [ 'size' => 128 ] ),
+        'joined'  => date_i18n( 'M Y', strtotime( $user->user_registered . ' UTC' ) ),
+        'mod'     => user_can( $user, 'manage_options' ),
+        'muted'   => snn_cm_is_moderator() && snn_cm_is_muted( $user->ID ),
+        'topics'  => $stats['topics'],
+        'replies' => $stats['replies'],
+        'hearts'  => snn_cm_likes_on() ? $stats['hearts'] : null,
+    ] );
+}
+
 // Image upload: validate, convert/store, return the URL
 add_action( 'wp_ajax_snn_cm_upload',        'snn_cm_ajax_upload' );
 add_action( 'wp_ajax_nopriv_snn_cm_upload', 'snn_cm_ajax_upload' );
@@ -1569,6 +1655,7 @@ add_action( 'admin_init', function () {
         'moderate'      => empty( $in['snn_cm_moderate'] ) ? 0 : 1,
         'nested_replies'=> empty( $in['snn_cm_nested_replies'] ) ? 0 : 1,
         'likes'         => empty( $in['snn_cm_likes'] ) ? 0 : 1,
+        'profile_cards' => empty( $in['snn_cm_profile_cards'] ) ? 0 : 1,
         'edit_hours'    => $int( 'snn_cm_edit_hours', 72, 0, 8760 ),
         'max_length'    => $int( 'snn_cm_max_length', 5000, 100, 20000 ),
         'post_rate'     => $int( 'snn_cm_post_rate', 5, 1, 100 ),
@@ -1745,6 +1832,7 @@ function snn_cm_admin_page() {
                     <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_moderate" value="1" <?= checked( 1, $s['moderate'], false ) ?> style="margin-top:2px"> <span>Hold new topics and replies for approval <span style="display:block;font-weight:400;color:#6b7280">On by default. Moderators skip the queue. Off: posts go live at once (spam filters still apply).</span></span></label>
                     <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_nested_replies" value="1" <?= checked( 1, $s['nested_replies'], false ) ?> style="margin-top:2px"> <span>Members can answer a specific reply <span style="display:block;font-weight:400;color:#6b7280">Off by default. Answers sit one level under the reply they answer, never deeper. Off: every reply goes at the end of the thread.</span></span></label>
                     <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_likes" value="1" <?= checked( 1, $s['likes'], false ) ?> style="margin-top:2px"> <span>Heart button on topics and replies <span style="display:block;font-weight:400;color:#6b7280">Off by default. Members can heart each post once; everyone who can read sees the count.</span></span></label>
+                    <label style="<?= $check ?>"><input type="checkbox" name="snn_cm_profile_cards" value="1" <?= checked( 1, $s['profile_cards'], false ) ?> style="margin-top:2px"> <span>Profile cards <span style="display:block;font-weight:400;color:#6b7280">Off by default. Clicking a member's avatar or name opens a small card: topics, replies, hearts received and join date. No profile pages.</span></span></label>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:22px">
                     <div>

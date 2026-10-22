@@ -429,3 +429,68 @@
 .snn-cm .snn-cm-like:disabled { cursor: default; opacity: 1; }
 .snn-cm-topic-foot .snn-cm-like { font-size: 14px; padding: 6px 12px; border: 1px solid var(--snn-cm-line); border-radius: 999px; }
 .snn-cm-topic-foot .snn-cm-like.is-on { border-color: color-mix(in srgb, #e11d48 35%, #fff); background: #fff1f3; }
+
+/* Profile card: clicking an avatar or name (SNN Learn → Community → Profile cards). Lives on <body>, outside .snn-cm. */
+.snn-cm-user { cursor: pointer; }
+strong.snn-cm-user:hover { text-decoration: underline; }
+.snn-cm-card {
+    --snn-cm-accent: #0556c7;
+    position: fixed;
+    z-index: 100002;
+    width: 260px;
+    max-width: calc(100vw - 16px);
+    padding: 16px;
+    background: #fff;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(17, 24, 39, .14);
+    font-size: 14px;
+    line-height: 1.4;
+    box-sizing: border-box;
+}
+.snn-cm-card-head { display: flex; gap: 12px; align-items: center; }
+.snn-cm-card-head img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: none; background: #f3f4f6; }
+.snn-cm-card-head strong { display: block; font-size: 16px; overflow-wrap: anywhere; }
+.snn-cm-card-head .snn-cm-tag { display: inline-block; margin: 4px 4px 0 0; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+.snn-cm-card-head .snn-cm-tag.is-pin { background: color-mix(in srgb, var(--snn-cm-accent) 10%, #fff); color: var(--snn-cm-accent); }
+.snn-cm-card-head .snn-cm-tag.is-lock { background: #fef2f2; color: #b91c1c; }
+.snn-cm-card-joined { display: block; margin-top: 2px; font-size: 12px; color: #6b7280; }
+.snn-cm-card-stats { display: flex; margin-top: 14px; border-top: 1px solid #e5e7eb; padding-top: 12px; }
+.snn-cm-card-stat { flex: 1; text-align: center; }
+.snn-cm-card-stat b { display: block; font-size: 18px; color: var(--snn-cm-accent); }
+.snn-cm-card-stat span { font-size: 12px; color: #6b7280; }
+.snn-cm-card-load { color: #6b7280; text-align: center; padding: 8px 0; }
+
+/* Profile card: opens on an avatar or name click. Lives on <body>, so it sets its own colours. */
+.snn-cm-user { cursor: pointer; }
+strong.snn-cm-user:hover { color: var(--snn-cm-accent); }
+.snn-cm-card {
+    --snn-cm-accent: #0556c7;
+    --snn-cm-accent-soft: color-mix(in srgb, var(--snn-cm-accent) 10%, #fff);
+    position: fixed;
+    z-index: 100002;
+    width: 260px;
+    max-width: calc(100vw - 16px);
+    padding: 16px;
+    background: #fff;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(17, 24, 39, .14);
+    font-size: 14px;
+    line-height: 1.4;
+    box-sizing: border-box;
+}
+.snn-cm-card-head { display: flex; gap: 12px; align-items: center; }
+.snn-cm-card-head img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: none; background: #f3f4f6; }
+.snn-cm-card-head strong { display: block; font-size: 16px; overflow-wrap: anywhere; }
+.snn-cm-card-head .snn-cm-tag { display: inline-block; margin: 4px 4px 0 0; font-size: 11px; padding: 1px 7px; border-radius: 99px; }
+.snn-cm-card .snn-cm-tag.is-pin { background: var(--snn-cm-accent-soft); color: var(--snn-cm-accent); }
+.snn-cm-card .snn-cm-tag.is-lock { background: #fef2f2; color: #b91c1c; }
+.snn-cm-card-joined { display: block; margin-top: 4px; font-size: 12px; color: #6b7280; }
+.snn-cm-card-stats { display: flex; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
+.snn-cm-card-stat { flex: 1; text-align: center; }
+.snn-cm-card-stat b { display: block; font-size: 18px; color: var(--snn-cm-accent); }
+.snn-cm-card-stat span { font-size: 12px; color: #6b7280; }
+.snn-cm-card-load { padding: 12px 0; text-align: center; color: #6b7280; }
