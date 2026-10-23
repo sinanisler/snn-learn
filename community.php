@@ -772,7 +772,8 @@ function snn_cm_sanitize_html( $html ) {
  */
 function snn_cm_render_html( $html ) {
     return preg_replace_callback( '#<pre>(.*?)</pre>#is', function ( $m ) {
-        return '<div class="snn-cm-code"><button type="button" class="snn-cm-copy">Copy</button><pre data-lenis-prevent>' . $m[1] . '</pre></div>';
+        $icons = '<span class="snn-cm-ico-copy">' . snn_cm_icon( 'copy' ) . '</span><span class="snn-cm-ico-done">' . snn_cm_icon( 'check' ) . '</span>';
+        return '<div class="snn-cm-code"><button type="button" class="snn-cm-copy" title="Copy code" aria-label="Copy code">' . $icons . '</button><pre data-lenis-prevent>' . $m[1] . '</pre></div>';
     }, snn_cm_sanitize_html( $html ) );
 }
 
@@ -905,6 +906,8 @@ function snn_cm_icon( $name ) {
         'lock'    => '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6zm9 14H6V10h12v10zm-6-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>',
         'heart'   => '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
         'pin'     => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>',
+        'copy'    => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
+        'check'   => '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>',
     ];
     return $icons[ $name ] ?? '';
 }

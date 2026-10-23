@@ -93,14 +93,13 @@
     });
   }
 
-  /** The Copy button on a code block. It says Copied for a moment. */
+  /** The Copy icon on a code block. It turns into a tick for a moment. */
   function copyCode(btn) {
     var pre = btn.parentNode.querySelector('pre');
     if (!pre) return;
     copyText(codeText(pre).replace(/\n+$/, '')).then(function () {
-      btn.textContent = 'Copied';
       btn.classList.add('is-done');
-      setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('is-done'); }, 1500);
+      setTimeout(function () { btn.classList.remove('is-done'); }, 1500);
     }).catch(function (err) { toast(esc(err.message)); });
   }
 

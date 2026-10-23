@@ -243,9 +243,11 @@
 .snn-cm-img { display: block; max-width: 100%; height: auto; border-radius: 10px; margin: 10px 0; }
 .snn-cm-body .snn-cm-img { cursor: zoom-in; }
 
-/* Code blocks: the box scrolls past 400px. The Copy button sits on the box, outside the scroll. */
-.snn-cm-body .snn-cm-code { position: relative; margin: .8em 0; }
-.snn-cm-body pre, .snn-cm-ed-area pre {
+/* Code blocks in posts, replies and the editor. Scoped to .snn-cm so the theme's own pre style does not apply.
+   The box scrolls past 400px (200px in the editor). The Copy icon sits on the box, outside the scroll. */
+.snn-cm .snn-cm-code { position: relative; margin: .8em 0; }
+.snn-cm .snn-cm-code pre,
+.snn-cm .snn-cm-ed-area pre {
     margin: 0;
     padding: 14px 16px;
     max-height: 400px;
@@ -258,25 +260,27 @@
     border: 1px solid #e5e7eb;
     border-radius: 10px;
 }
-.snn-cm-ed-area pre { margin: 8px 0; }
-.snn-cm-copy {
+.snn-cm .snn-cm-ed-area pre { margin: 8px 0; max-height: 200px; }
+.snn-cm .snn-cm-copy {
     position: absolute;
     top: 8px;
     right: 8px;
     z-index: 1;
-    height: 26px;
-    padding: 0 10px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
     border: 1px solid #d1d5db;
-    border-radius: 6px;
+    border-radius: 8px;
     background: #fff;
-    color: #374151;
-    font: inherit;
-    font-size: 12px;
-    font-weight: 600;
+    color: #6b7280;
     cursor: pointer;
 }
-.snn-cm-copy:hover { background: #f3f4f6; }
-.snn-cm-copy.is-done { color: #15803d; border-color: #86efac; }
+.snn-cm .snn-cm-copy:hover { background: #f3f4f6; color: var(--snn-cm-text); }
+.snn-cm .snn-cm-copy > span { display: inline-flex; align-items: center; justify-content: center; }
+.snn-cm .snn-cm-copy .snn-cm-ico-done { display: none; }
+.snn-cm .snn-cm-copy.is-done { color: #15803d; border-color: #86efac; }
+.snn-cm .snn-cm-copy.is-done .snn-cm-ico-copy { display: none; }
+.snn-cm .snn-cm-copy.is-done .snn-cm-ico-done { display: inline-flex; }
 
 /* ---------- replies ---------- */
 .snn-cm-comments { margin-top: 18px; }
