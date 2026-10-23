@@ -74,6 +74,36 @@
     toast('Please <a href="' + esc(C.loginUrl) + '">log in</a> or <a href="' + esc(C.registerUrl) + '">register</a> to join in.');
   }
 
+  /** Copy text. Without the Clipboard API (plain http, older browsers) a hidden textarea does it. */
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      ta.remove();
+      if (ok) resolve();
+      else reject(new Error('Could not copy. Select the code and copy it by hand.'));
+    });
+  }
+
+  /** The Copy button on a code block. It says Copied for a moment. */
+  function copyCode(btn) {
+    var pre = btn.parentNode.querySelector('pre');
+    if (!pre) return;
+    copyText(codeText(pre).replace(/\n+$/, '')).then(function () {
+      btn.textContent = 'Copied';
+      btn.classList.add('is-done');
+      setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('is-done'); }, 1500);
+    }).catch(function (err) { toast(esc(err.message)); });
+  }
+
   function bump(section, delta) {
     var n = section.querySelector('.snn-cm-comments-count');
     if (n) n.textContent = Math.max(0, (parseInt(n.textContent, 10) || 0) + delta);
@@ -182,6 +212,40 @@
     });
   }
 
+  /** The text of a code block. Each <br> is a line break. */
+  function codeText(node) {
+    var out = '';
+    node.childNodes.forEach(function (n) {
+      if (n.nodeType === 3) out += n.nodeValue;
+      else if (n.nodeName === 'BR') out += '\n';
+      else out += codeText(n);
+    });
+    return out;
+  }
+
+  /** Code stays plain text: any formatting the lines had before they became code is dropped. */
+  function plainCode(pre) {
+    var lines = codeText(pre).split('\n');
+    pre.innerHTML = '';
+    lines.forEach(function (line, i) {
+      if (i) pre.appendChild(document.createElement('br'));
+      pre.appendChild(document.createTextNode(line));
+    });
+  }
+
+  /** A trailing <br> only keeps the last line visible while typing, so it is dropped when the post is saved. */
+  function trimCode(area) {
+    area.querySelectorAll('pre').forEach(function (pre) {
+      while (pre.lastChild && pre.lastChild.nodeName === 'BR') pre.lastChild.remove();
+    });
+  }
+
+  /** Saved HTML shows a Copy button around each code block. The editor needs the bare <pre>. */
+  function unwrapCode(area) {
+    area.querySelectorAll('.snn-cm-copy').forEach(function (b) { b.remove(); });
+    area.querySelectorAll('.snn-cm-code').forEach(function (w) { unwrap(w); });
+  }
+
   function makeEditor(host, opts) {
     opts = opts || {};
     var ed = document.createElement('div');
@@ -208,6 +272,7 @@
         '<button type="button" data-cmd="insertUnorderedList" title="Bullet list">&bull;</button>' +
         '<button type="button" data-cmd="insertOrderedList" title="Numbered list">1.</button>' +
         '<button type="button" data-cmd="blockquote" title="Quote">&#10077;</button>' +
+        '<button type="button" data-cmd="code" title="Code block" aria-label="Code block">&lt;/&gt;</button>' +
         '<span class="snn-cm-ed-sep"></span>' +
         '<span class="snn-cm-ed-colors">' +
           '<button type="button" class="snn-cm-ed-colorbtn" title="Text colour" aria-label="Text colour"><span class="snn-cm-ed-a">A</span></button>' +
@@ -241,7 +306,7 @@
     var selected = null;
     var saved = null;
 
-    if (opts.html) area.innerHTML = opts.html;
+    if (opts.html) { area.innerHTML = opts.html; unwrapCode(area); }
 
     /* undo / redo: snapshots of the content, like the snn-brx editor */
     var history = [area.innerHTML];
@@ -305,12 +370,51 @@
       state();
     }
 
+    /** The code button. A code block turns back into paragraphs, one per line. Otherwise the current paragraph, or each one selected, becomes code. */
+    function toggleCode() {
+      restoreSel();
+      var pre = closestIn('pre');
+      var last = null;
+      if (pre) {
+        codeText(pre).split('\n').forEach(function (line) {
+          var p = document.createElement('p');
+          p.textContent = line;
+          if (!line) p.appendChild(document.createElement('br'));
+          pre.parentNode.insertBefore(p, pre);
+          last = p;
+        });
+        pre.remove();
+      } else {
+        document.execCommand('formatBlock', false, 'pre');
+        var s = window.getSelection();
+        area.querySelectorAll('pre').forEach(function (p) {
+          if (!s.containsNode(p, true)) return;
+          plainCode(p);
+          last = p;
+        });
+      }
+      if (last) caretEnd(last);
+      saveSel();
+      snapshot();
+      state();
+    }
+
+    function caretEnd(el) {
+      var r = document.createRange();
+      r.selectNodeContents(el);
+      r.collapse(false);
+      var s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    }
+
     function state() {
       ed.querySelectorAll('[data-cmd]').forEach(function (b) {
         var c = b.dataset.cmd;
         if (['undo', 'redo', 'blockquote', 'removeFormat'].indexOf(c) > -1) return;
         var on = false;
-        try { on = document.queryCommandState(c); } catch (e) {}
+        if (c === 'code') on = !!closestIn('pre');
+        else { try { on = document.queryCommandState(c); } catch (e) {} }
         b.classList.toggle('is-on', on);
       });
     }
@@ -404,6 +508,8 @@
       if (mod && e.key === 'Enter') { e.preventDefault(); btn.click(); return; }
       if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
       if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
+      // Enter inside a code block is a line break, not a new paragraph.
+      if (e.key === 'Enter' && closestIn('pre')) { e.preventDefault(); document.execCommand('insertLineBreak'); snapshot(); return; }
       // Enter starts a new paragraph, except inside lists and quotes where the browser's own rules work.
       if (e.key === 'Enter' && !e.shiftKey && !closestIn('li, blockquote')) {
         e.preventDefault();
@@ -420,6 +526,15 @@
       e.preventDefault();
       if (images.length) { addFiles(images); return; }
       var text = cd.getData('text/plain');
+      // Inside a code block, pasted lines stay lines of that block. Each line goes in as text, with a line break between.
+      if (closestIn('pre')) {
+        text.split(/\r?\n/).forEach(function (line, i) {
+          if (i) document.execCommand('insertLineBreak');
+          if (line) document.execCommand('insertText', false, line);
+        });
+        snapshot();
+        return;
+      }
       var html = text.split(/\n+/).map(function (l) { return l.trim() ? '<p>' + esc(l.trim()) + '</p>' : ''; }).join('');
       document.execCommand('insertHTML', false, html);
       snapshot();
@@ -441,6 +556,7 @@
         var cmd = b.dataset.cmd;
         if (cmd === 'undo') { undo(); return; }
         if (cmd === 'redo') { redo(); return; }
+        if (cmd === 'code') { toggleCode(); return; }
         if (cmd === 'blockquote') {
           var q = closestIn('blockquote');
           if (q) {
@@ -533,7 +649,7 @@
     var api = {
       el: ed,
       area: area,
-      html: function () { normalize(area); return area.innerHTML; },
+      html: function () { normalize(area); trimCode(area); return area.innerHTML; },
       empty: function () { return !area.textContent.replace(/ /g, ' ').trim() && !area.querySelector('img'); },
       clear: function () { area.innerHTML = ''; history = ['']; hi = 0; selected = null; tools.hidden = true; updateCount(); },
       error: setMsg,
@@ -764,6 +880,8 @@
 
     /* clicks */
     root.addEventListener('click', function (e) {
+      var copy = e.target.closest('.snn-cm-copy');
+      if (copy) { copyCode(copy); return; }
       var cat = e.target.closest('.snn-cm-cat');
       if (cat) {
         e.preventDefault();

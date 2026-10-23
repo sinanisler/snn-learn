@@ -734,7 +734,7 @@ function snn_cm_sanitize_html( $html ) {
     }, $html );
 
     $html = wp_kses( $html, [
-        'p' => [], 'div' => [], 'br' => [],
+        'p' => [], 'div' => [], 'br' => [], 'pre' => [],
         'strong' => [], 'b' => [], 'em' => [], 'i' => [], 'u' => [], 's' => [],
         'ul' => [], 'ol' => [], 'li' => [], 'blockquote' => [],
         'span'  => [ 'style' => true ],
@@ -764,6 +764,16 @@ function snn_cm_sanitize_html( $html ) {
     $html = preg_replace( '#^(\s*<(p|div)>(\s|&nbsp;|<br\s*/?>)*</\2>)+|(<(p|div)>(\s|&nbsp;|<br\s*/?>)*</\5>\s*)+$#i', '', $html );
 
     return trim( $html );
+}
+
+/**
+ * Sanitised HTML for display. Each code block gets a Copy button here, on output, so the button is never
+ * saved and the editor never sees it.
+ */
+function snn_cm_render_html( $html ) {
+    return preg_replace_callback( '#<pre>(.*?)</pre>#is', function ( $m ) {
+        return '<div class="snn-cm-code"><button type="button" class="snn-cm-copy">Copy</button><pre data-lenis-prevent>' . $m[1] . '</pre></div>';
+    }, snn_cm_sanitize_html( $html ) );
 }
 
 function snn_cm_html_is_empty( $html ) {
@@ -1017,7 +1027,7 @@ function snn_cm_comment_html( $c, $children = null ) {
                 <?php if ( $edited ) : ?><span class="snn-cm-edited"><?= esc_html( $edited ) ?></span><?php endif; ?>
                 <?php if ( $c->comment_approved !== '1' ) : ?><span class="snn-cm-pending">Awaiting moderation</span><?php endif; ?>
             </div>
-            <div class="snn-cm-c-body"><?= snn_cm_sanitize_html( $c->comment_content ) ?></div>
+            <div class="snn-cm-c-body"><?= snn_cm_render_html( $c->comment_content ) ?></div>
             <div class="snn-cm-c-actions">
                 <?= snn_cm_like_html( 'comment', $c->comment_ID ) ?>
                 <?php if ( snn_cm_nested_on() && snn_cm_can_reply() && $c->comment_approved === '1' && ( ! snn_cm_topic_is_locked( get_post( $c->comment_post_ID ) ) || snn_cm_is_moderator() ) ) : ?>
@@ -1097,7 +1107,7 @@ function snn_cm_thread_html( $post ) {
         <?php endif; ?>
 
         <article class="snn-cm-topic-body">
-            <div class="snn-cm-body"><?= snn_cm_sanitize_html( $post->post_content ) ?></div>
+            <div class="snn-cm-body"><?= snn_cm_render_html( $post->post_content ) ?></div>
             <?php if ( snn_cm_likes_on() && $post->post_status === 'publish' ) : ?><div class="snn-cm-topic-foot"><?= snn_cm_like_html( 'post', $post->ID ) ?></div><?php endif; ?>
         </article>
 
@@ -1460,7 +1470,7 @@ add_action( 'wp_ajax_snn_cm_comment_edit', function () {
     update_comment_meta( $c->comment_ID, '_snn_cm_edited', $now );
     do_action( 'edit_comment', (int) $c->comment_ID, (array) get_comment( $c->comment_ID ) );
 
-    wp_send_json_success( [ 'html' => snn_cm_sanitize_html( $content ), 'edited' => snn_cm_edited_label( $now ) ] );
+    wp_send_json_success( [ 'html' => snn_cm_render_html( $content ), 'edited' => snn_cm_edited_label( $now ) ] );
 } );
 
 // Delete own reply inside the window. Deleting one never takes others with it: WordPress moves its answers up a level.

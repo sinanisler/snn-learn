@@ -39,8 +39,8 @@
 }
 .snn-cm-side-list { display: flex; flex-direction: column; gap: 2px; }
 
-/* Search: a small box at the foot of the sidebar, under the categories. */
-.snn-cm-search { margin-top: auto; padding-top: 14px; }
+/* Search: a small box right under the categories. */
+.snn-cm-search { padding-top: 14px; }
 .snn-cm-search-input {
     width: 100%;
     padding: 6px 10px;
@@ -242,6 +242,41 @@
 .snn-cm-body a { color: var(--snn-cm-accent); }
 .snn-cm-img { display: block; max-width: 100%; height: auto; border-radius: 10px; margin: 10px 0; }
 .snn-cm-body .snn-cm-img { cursor: zoom-in; }
+
+/* Code blocks: the box scrolls past 400px. The Copy button sits on the box, outside the scroll. */
+.snn-cm-body .snn-cm-code { position: relative; margin: .8em 0; }
+.snn-cm-body pre, .snn-cm-ed-area pre {
+    margin: 0;
+    padding: 14px 16px;
+    max-height: 400px;
+    overflow: auto;
+    white-space: pre;
+    tab-size: 4;
+    font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    color: #1f2937;
+    background: #f6f8fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+}
+.snn-cm-ed-area pre { margin: 8px 0; }
+.snn-cm-copy {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    color: #374151;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.snn-cm-copy:hover { background: #f3f4f6; }
+.snn-cm-copy.is-done { color: #15803d; border-color: #86efac; }
 
 /* ---------- replies ---------- */
 .snn-cm-comments { margin-top: 18px; }
