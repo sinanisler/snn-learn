@@ -34,6 +34,7 @@ function snn_cm_defaults() {
         // Access
         'enabled'       => 0,
         'visibility'    => 'members', // members | public (public: guests can read, never post)
+        'forum_page'    => 0,         // the page with [snn_learn_community]; topic addresses are built from it. 0 = ?snn_topic= links
         // Posting — off by default so the site stays closed until you open it
         'allow_topics'  => 0,
         'allow_replies' => 0,
@@ -256,7 +257,7 @@ function snn_cm_edited_label( $ts ) {
 
 function snn_cm_can_view() {
     if ( ! snn_cm_enabled() ) return false;
-    return snn_cm_settings()['visibility'] === 'public' || snn_cm_is_member();
+    return snn_cm_settings()['visibility'] === 'public' || snn_cm_is_member() || (bool) snn_cm_guest_terms();
 }
 
 function snn_cm_can_post_topic() {
@@ -422,9 +423,162 @@ function snn_cm_rate_ok( $bucket, $limit, $window = 600 ) {
     return true;
 }
 
-function snn_cm_page_url() {
-    // Relative links keep the visitor on the page that holds the shortcode.
-    return '?snn_topic=';
+// ----------------------------------------------------------
+// Topic addresses
+// ----------------------------------------------------------
+
+/** The forum page's address with a trailing slash, or '' when no page is chosen or it is not published. */
+function snn_cm_forum_base_url() {
+    $page_id = (int) snn_cm_settings()['forum_page'];
+    $page    = $page_id ? get_post( $page_id ) : null;
+    if ( ! $page || $page->post_type !== 'page' || $page->post_status !== 'publish' ) return '';
+    return trailingslashit( get_permalink( $page ) );
+}
+
+/** A chosen page ID if it is a published page, otherwise 0. */
+function snn_cm_valid_page_id( $id ) {
+    $page = get_post( absint( $id ) );
+    return ( $page && $page->post_type === 'page' && $page->post_status === 'publish' ) ? (int) $page->ID : 0;
+}
+
+/** The forum's list address: the forum page, or the page with the shortcode without its query string. */
+function snn_cm_list_url() {
+    return snn_cm_forum_base_url() ?: strtok( snn_cm_current_url(), '?' );
+}
+
+/** The topic title as it appears in its address, e.g. "How to install" becomes how-to-install. */
+function snn_cm_topic_slug( $post ) {
+    $post = get_post( $post );
+    $slug = rtrim( substr( sanitize_title( $post->post_title ), 0, 80 ), '-' );
+    return $slug !== '' ? $slug : 'topic';
+}
+
+/**
+ * A topic's address: the forum page, then the title and the ID, e.g. /community/how-to-install-12/.
+ * Without a forum page, the old ?snn_topic= link on the current page.
+ */
+function snn_cm_topic_url( $post ) {
+    $post = get_post( $post );
+    $base = snn_cm_forum_base_url();
+    return $base ? $base . snn_cm_topic_slug( $post ) . '-' . (int) $post->ID . '/' : '?snn_topic=' . (int) $post->ID;
+}
+
+/**
+ * The forum page serves /{forum page}/{title}-{ID}/. The title only makes the address readable;
+ * the ID picks the topic. Rewrite rules are stored, so they are rebuilt once when the forum page changes.
+ */
+add_action( 'init', 'snn_cm_topic_rewrite', 30 );
+function snn_cm_topic_rewrite() {
+    $base = snn_cm_enabled() ? snn_cm_forum_base_url() : '';
+    $path = '';
+    if ( $base ) {
+        $path = get_page_uri( (int) snn_cm_settings()['forum_page'] );
+        add_rewrite_rule( '^' . preg_quote( $path, '#' ) . '/([^/]+)-([0-9]+)/?$', 'index.php?pagename=' . $path . '&snn_topic_slug=$matches[1]&snn_topic=$matches[2]', 'top' );
+    }
+    if ( get_option( 'snn_cm_rewrite_path', '' ) !== $path ) {
+        flush_rewrite_rules( false );
+        update_option( 'snn_cm_rewrite_path', $path, false );
+    }
+}
+
+add_filter( 'query_vars', function ( $vars ) {
+    return array_merge( $vars, [ 'snn_topic', 'snn_topic_slug' ] );
+} );
+
+/** The topic the address points at (/forum/title-12/ or ?snn_topic=12), when this viewer may see it. Otherwise null. */
+function snn_cm_open_topic_for_request() {
+    $id   = (int) get_query_var( 'snn_topic' );
+    $post = $id ? get_post( $id ) : null;
+    return ( $post && snn_cm_topic_visible( $post ) && snn_cm_can_see_topic( $post ) ) ? $post : null;
+}
+
+// Search engines get the topic's own title, and its own address as the canonical one.
+add_filter( 'document_title_parts', function ( $parts ) {
+    $post = snn_cm_open_topic_for_request();
+    if ( $post ) $parts['title'] = get_the_title( $post );
+    return $parts;
+} );
+
+add_filter( 'get_canonical_url', function ( $url, $post ) {
+    $topic = snn_cm_open_topic_for_request();
+    return ( $topic && snn_cm_forum_base_url() ) ? snn_cm_topic_url( $topic ) : $url;
+}, 10, 2 );
+
+// Old ?snn_topic= links, and links to a topic whose title has since changed, move to the current address.
+add_action( 'template_redirect', function () {
+    $topic = snn_cm_open_topic_for_request();
+    if ( ! $topic || ! snn_cm_forum_base_url() ) return;
+    if ( (string) get_query_var( 'snn_topic_slug' ) === snn_cm_topic_slug( $topic ) ) return;
+    wp_safe_redirect( snn_cm_topic_url( $topic ), 301 );
+    exit;
+} );
+
+// ----------------------------------------------------------
+// Guest access, per category
+// ----------------------------------------------------------
+
+/**
+ * What a guest may see of a category, from its 'snn_cm_guest' term meta:
+ *  - members: logged-in members only (the default)
+ *  - titles:  guests see the topic titles and must log in to read a topic
+ *  - open:    guests read whole topics and replies (they still cannot post)
+ * On a forum open to everyone, every category is open.
+ */
+function snn_cm_term_guest_access( $term_id ) {
+    if ( snn_cm_settings()['visibility'] === 'public' ) return 'open';
+    $value = (string) get_term_meta( (int) $term_id, 'snn_cm_guest', true );
+    return in_array( $value, [ 'titles', 'open' ], true ) ? $value : 'members';
+}
+
+/** The viewer is a guest of a members-only forum, so the category rules apply to them. */
+function snn_cm_is_guest_view() {
+    return ! snn_cm_is_member() && snn_cm_settings()['visibility'] !== 'public';
+}
+
+/** The categories a guest may see: those set to titles or open. */
+function snn_cm_guest_terms() {
+    return array_values( array_filter( snn_cm_terms(), function ( $term ) {
+        return snn_cm_term_guest_access( $term->term_id ) !== 'members';
+    } ) );
+}
+
+/** The categories this viewer may see: all of them for members, the guest ones for everyone else. */
+function snn_cm_visible_terms() {
+    return snn_cm_is_guest_view() ? snn_cm_guest_terms() : snn_cm_terms();
+}
+
+/**
+ * Topic query clauses. A guest only gets topics from categories they may see;
+ * $category adds a category filter on top. Returns the tax_query argument, or [] when nothing is filtered.
+ */
+function snn_cm_tax_args( $category = '' ) {
+    $clauses = [];
+    if ( snn_cm_is_guest_view() ) {
+        $ids       = wp_list_pluck( snn_cm_guest_terms(), 'term_id' );
+        $clauses[] = [ 'taxonomy' => SNN_CM_TAX, 'field' => 'term_id', 'terms' => $ids ?: [ 0 ] ];
+    }
+    if ( $category !== '' ) {
+        $clauses[] = [ 'taxonomy' => SNN_CM_TAX, 'field' => 'slug', 'terms' => $category ];
+    }
+    if ( ! $clauses ) return [];
+    if ( count( $clauses ) > 1 ) array_unshift( $clauses, [ 'relation' => 'AND' ] );
+    return [ 'tax_query' => $clauses ];
+}
+
+/** The access a topic's category gives guests: members, titles or open. */
+function snn_cm_topic_guest_access( $post ) {
+    $term = snn_cm_first_term( $post );
+    return $term ? snn_cm_term_guest_access( $term->term_id ) : 'members';
+}
+
+/** Can the viewer see this topic's title? Members always; guests when its category is titles or open. */
+function snn_cm_can_see_topic( $post ) {
+    return ! snn_cm_is_guest_view() || snn_cm_topic_guest_access( $post ) !== 'members';
+}
+
+/** Can the viewer read this topic and its replies? Members always; guests only in open categories. */
+function snn_cm_can_read_topic( $post ) {
+    return ! snn_cm_is_guest_view() || snn_cm_topic_guest_access( $post ) === 'open';
 }
 
 // ============================================================
@@ -841,9 +995,7 @@ function snn_cm_query_topics( $category, $page, $per_page, $search = '' ) {
             'order'               => 'DESC',
             'meta_query'          => [ [ 'key' => '_snn_cm_pin', 'value' => $category === '' ? [ 'all' ] : [ 'all', 'category' ], 'compare' => 'IN' ] ],
         ];
-        if ( $category !== '' ) {
-            $pin_args['tax_query'] = [ [ 'taxonomy' => SNN_CM_TAX, 'field' => 'slug', 'terms' => $category ] ];
-        }
+        $pin_args = array_merge( $pin_args, snn_cm_tax_args( $category ) );
         $pins = get_posts( $pin_args );
     }
 
@@ -863,9 +1015,7 @@ function snn_cm_query_topics( $category, $page, $per_page, $search = '' ) {
             'meta_key'            => '_snn_cm_last',
             'orderby'             => [ 'meta_value_num' => 'DESC', 'ID' => 'DESC' ],
         ];
-        if ( $category !== '' ) {
-            $args['tax_query'] = [ [ 'taxonomy' => SNN_CM_TAX, 'field' => 'slug', 'terms' => $category ] ];
-        }
+        $args = array_merge( $args, snn_cm_tax_args( $category ) );
         if ( $search !== '' ) {
             $args['s'] = $search;
         }
@@ -923,7 +1073,7 @@ function snn_cm_row_html( $post ) {
     $locked   = snn_cm_topic_is_locked( $post );
 
     ob_start(); ?>
-    <a class="snn-cm-row<?= $pending ? ' is-pending' : '' ?><?= $pin ? ' is-pinned' : '' ?>" href="<?= esc_attr( snn_cm_page_url() . (int) $post->ID ) ?>" data-id="<?= (int) $post->ID ?>">
+    <a class="snn-cm-row<?= $pending ? ' is-pending' : '' ?><?= $pin ? ' is-pinned' : '' ?>" href="<?= esc_url( snn_cm_topic_url( $post ) ) ?>" data-id="<?= (int) $post->ID ?>">
         <?= snn_cm_avatar( (int) $post->post_author, 40 ) ?>
         <span class="snn-cm-row-main">
             <span class="snn-cm-row-title">
@@ -953,8 +1103,8 @@ function snn_cm_row_html( $post ) {
 
 /** Category sidebar. $active is the slug in use; '' means all discussions. */
 function snn_cm_sidebar_html( $active = '' ) {
-    $terms = snn_cm_terms();
-    $total = (int) wp_count_posts( SNN_CM_PT )->publish;
+    $terms = snn_cm_visible_terms();
+    $total = snn_cm_is_guest_view() ? array_sum( array_map( fn( $t ) => (int) $t->count, $terms ) ) : (int) wp_count_posts( SNN_CM_PT )->publish;
 
     ob_start(); ?>
     <button type="button" class="snn-cm-cat<?= $active === '' ? ' is-active' : '' ?>" data-slug="">
@@ -1140,7 +1290,50 @@ function snn_cm_thread_html( $post ) {
     return ob_get_clean();
 }
 
+/** A topic as this viewer gets it: the whole thread, or the teaser when they have to log in to read it. */
+function snn_cm_topic_html( $post ) {
+    return snn_cm_can_read_topic( $post ) ? snn_cm_thread_html( $post ) : snn_cm_teaser_html( $post );
+}
+
+/** A topic in a titles-only category, as a guest sees it: the title, who started it and a way in. The text and replies stay hidden. */
+function snn_cm_teaser_html( $post ) {
+    $post = get_post( $post );
+    $cat  = snn_cm_first_term( $post );
+    $n    = (int) get_comments_number( $post );
+
+    ob_start(); ?>
+    <div class="snn-cm-thread-inner" data-id="<?= (int) $post->ID ?>">
+        <button type="button" class="snn-cm-back"><?= snn_cm_icon( 'back' ) ?> All discussions</button>
+
+        <header class="snn-cm-thread-head">
+            <div class="snn-cm-tags">
+                <?php if ( $cat ) : ?><span class="snn-cm-pill" style="--c:<?= esc_attr( snn_cm_term_color( $cat->term_id ) ) ?>"><?= esc_html( $cat->name ) ?></span><?php endif; ?>
+            </div>
+            <h2 class="snn-cm-thread-title"><?= esc_html( get_the_title( $post ) ) ?></h2>
+            <div class="snn-cm-meta">
+                <?= snn_cm_avatar( (int) $post->post_author, 28 ) ?>
+                <?= snn_cm_name( $post->post_author, get_the_author_meta( 'display_name', $post->post_author ) ) ?>
+                <span><?= esc_html( snn_cm_time_ago( strtotime( $post->post_date_gmt . ' UTC' ) ) ) ?></span>
+                <span><?= $n ? esc_html( sprintf( _n( '%s reply', '%s replies', $n ), number_format_i18n( $n ) ) ) : 'No replies yet' ?></span>
+            </div>
+        </header>
+
+        <div class="snn-cm-locked snn-cm-teaser">
+            <div class="snn-cm-locked-icon"><?= snn_cm_icon( 'lock' ) ?></div>
+            <p class="snn-cm-locked-text">Log in or register to read this discussion and join in.</p>
+            <div class="snn-cm-locked-actions">
+                <a class="snn-cm-btn" href="<?= esc_url( snn_cm_register_url() ) ?>">Register</a>
+                <a class="snn-cm-btn is-ghost" href="<?= esc_url( wp_login_url( snn_cm_forum_base_url() ? snn_cm_topic_url( $post ) : snn_cm_current_url() ) ) ?>">Log in</a>
+            </div>
+        </div>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+
 function snn_cm_current_url() {
+    // Inside an AJAX request the address is admin-ajax.php, so the page that made the request is used.
+    if ( wp_doing_ajax() ) return wp_get_referer() ?: home_url( '/' );
     $host = $_SERVER['HTTP_HOST'] ?? parse_url( home_url(), PHP_URL_HOST );
     $uri  = $_SERVER['REQUEST_URI'] ?? '/';
     return ( is_ssl() ? 'https://' : 'http://' ) . $host . $uri;
@@ -1194,8 +1387,12 @@ function snn_cm_shortcode( $atts ) {
     $can_post = snn_cm_can_post_topic();
     $can_reply = snn_cm_can_reply();
 
+    // A topic in the address (/forum/title-12/ or ?snn_topic=12) is rendered now, so search engines and first visits see it.
+    $open      = snn_cm_open_topic_for_request();
+    $open_html = $open ? snn_cm_topic_html( $open ) : '';
+
     ob_start(); ?>
-    <div class="snn-cm" style="<?= esc_attr( snn_cm_box_style() ) ?>" data-cat="<?= esc_attr( $category ) ?>" data-can-post="<?= $can_post ? 1 : 0 ?>" data-can-reply="<?= $can_reply ? 1 : 0 ?>">
+    <div class="snn-cm" style="<?= esc_attr( snn_cm_box_style() ) ?>" data-cat="<?= esc_attr( $category ) ?>" data-can-post="<?= $can_post ? 1 : 0 ?>" data-can-reply="<?= $can_reply ? 1 : 0 ?>" data-list-url="<?= esc_url( snn_cm_list_url() ) ?>"<?= $open_html ? ' data-open-topic="' . (int) $open->ID . '"' : '' ?>>
         <aside class="snn-cm-side" aria-label="Categories">
             <div class="snn-cm-side-list"><?= snn_cm_sidebar_html( $category ) ?></div>
             <div class="snn-cm-search">
@@ -1204,7 +1401,7 @@ function snn_cm_shortcode( $atts ) {
         </aside>
 
         <section class="snn-cm-main">
-            <div class="snn-cm-view" data-view="list">
+            <div class="snn-cm-view" data-view="list"<?= $open_html ? ' hidden' : '' ?>>
                 <div class="snn-cm-bar">
                     <h2 class="snn-cm-heading">Latest topics</h2>
                     <?php if ( $can_post ) : ?>
@@ -1214,6 +1411,8 @@ function snn_cm_shortcode( $atts ) {
 
                 <?php if ( ! is_user_logged_in() && $s['visibility'] === 'public' ) : ?>
                     <p class="snn-cm-guest-note"><a href="<?= esc_url( wp_login_url( snn_cm_current_url() ) ) ?>">Log in</a> or <a href="<?= esc_url( snn_cm_register_url() ) ?>">register</a> to post.</p>
+                <?php elseif ( ! is_user_logged_in() && snn_cm_is_guest_view() ) : ?>
+                    <p class="snn-cm-guest-note"><a href="<?= esc_url( wp_login_url( snn_cm_current_url() ) ) ?>">Log in</a> or <a href="<?= esc_url( snn_cm_register_url() ) ?>">register</a> to read the full discussions and join in.</p>
                 <?php elseif ( snn_cm_is_muted() ) : ?>
                     <p class="snn-cm-guest-note">A moderator has muted your account. You can read the forum, but not post.</p>
                 <?php endif; ?>
@@ -1225,7 +1424,7 @@ function snn_cm_shortcode( $atts ) {
                 <div class="snn-cm-more-wrap"<?= $page['has_more'] ? '' : ' hidden' ?>><button type="button" class="snn-cm-btn is-ghost snn-cm-more">Load more</button></div>
             </div>
 
-            <div class="snn-cm-view snn-cm-thread" data-view="thread" hidden></div>
+            <div class="snn-cm-view snn-cm-thread" data-view="thread"<?= $open_html ? '' : ' hidden' ?>><?= $open_html ?></div>
         </section>
     </div>
     <?php
@@ -1272,9 +1471,9 @@ function snn_cm_enqueue() {
         'cards'       => snn_cm_cards_on(),
         'categories'  => array_values( array_map( function ( $t ) {
             return [ 'slug' => $t->slug, 'name' => $t->name, 'color' => snn_cm_term_color( $t->term_id ) ];
-        }, snn_cm_terms() ) ),
+        }, snn_cm_visible_terms() ) ),
         // The new-topic form starts on this category (or the active one) so nobody posts without one.
-        'defaultCategory' => ( $def = snn_cm_default_term() ) ? $def->slug : '',
+        'defaultCategory' => ( $def = snn_cm_is_guest_view() ? ( snn_cm_guest_terms()[0] ?? null ) : snn_cm_default_term() ) ? $def->slug : '',
     ];
     wp_add_inline_script( 'snn-community', 'window.SNN_CM = ' . wp_json_encode( $cfg ) . ';', 'before' );
 }
@@ -1329,7 +1528,8 @@ add_action( 'wp_ajax_nopriv_snn_cm_thread', 'snn_cm_ajax_thread' );
 function snn_cm_ajax_thread() {
     snn_cm_ajax_guard();
     $post = snn_cm_ajax_topic_from_request();
-    wp_send_json_success( [ 'html' => snn_cm_thread_html( $post ), 'title' => get_the_title( $post ) ] );
+    if ( ! snn_cm_can_see_topic( $post ) ) wp_send_json_error( [ 'message' => 'Log in or register to read this topic.', 'login' => true ], 401 );
+    wp_send_json_success( [ 'html' => snn_cm_topic_html( $post ), 'title' => get_the_title( $post ), 'url' => snn_cm_topic_url( $post ) ] );
 }
 
 // New topic
@@ -1579,6 +1779,7 @@ add_action( 'wp_ajax_snn_cm_user_card',        'snn_cm_ajax_user_card' );
 add_action( 'wp_ajax_nopriv_snn_cm_user_card', 'snn_cm_ajax_user_card' );
 function snn_cm_ajax_user_card() {
     snn_cm_ajax_guard();
+    if ( snn_cm_is_guest_view() ) wp_send_json_error( [ 'message' => 'Log in to see member profiles.', 'login' => true ], 401 );
     if ( ! snn_cm_cards_on() ) wp_send_json_error( [ 'message' => 'Profile cards are turned off.' ], 403 );
     $user = get_userdata( absint( $_POST['user'] ?? 0 ) );
     if ( ! $user ) wp_send_json_error( [ 'message' => 'Member not found.' ], 404 );
@@ -1663,6 +1864,7 @@ add_action( 'admin_init', function () {
     $new = [
         'enabled'       => empty( $in['snn_cm_enabled'] ) ? 0 : 1,
         'visibility'    => ( $in['snn_cm_visibility'] ?? '' ) === 'public' ? 'public' : 'members',
+        'forum_page'    => snn_cm_valid_page_id( $in['snn_cm_forum_page'] ?? 0 ),
         'allow_topics'  => empty( $in['snn_cm_allow_topics'] ) ? 0 : 1,
         'allow_replies' => empty( $in['snn_cm_allow_replies'] ) ? 0 : 1,
         'moderate'      => empty( $in['snn_cm_moderate'] ) ? 0 : 1,
@@ -1729,6 +1931,7 @@ function snn_cm_save_categories( $in ) {
 
         $color = sanitize_hex_color( (string) ( $row['color'] ?? '' ) );
         if ( $color ) update_term_meta( (int) $term->term_id, 'snn_cm_color', $color );
+        if ( isset( $row['guest'] ) ) snn_cm_save_guest_access( (int) $term->term_id, $row['guest'] );
 
         update_term_meta( (int) $term->term_id, 'snn_cm_order', count( $keep ) );
         $keep[] = (int) $term->term_id;
@@ -1745,6 +1948,7 @@ function snn_cm_save_categories( $in ) {
             $keep[] = (int) $added['term_id'];
             $add_color = sanitize_hex_color( (string) ( $add['color'] ?? '' ) );
             if ( $add_color ) update_term_meta( (int) $added['term_id'], 'snn_cm_color', $add_color );
+            snn_cm_save_guest_access( (int) $added['term_id'], $add['guest'] ?? '' );
             $msg['ok'][] = sprintf( 'Added "%s".', $add_name );
         }
     }
@@ -1776,6 +1980,21 @@ function snn_cm_save_categories( $in ) {
     }
 
     return $msg;
+}
+
+/** Stores a category's guest access. Only 'titles' and 'open' are kept; anything else means members only. */
+function snn_cm_save_guest_access( $term_id, $value ) {
+    $value = in_array( $value, [ 'titles', 'open' ], true ) ? $value : 'members';
+    update_term_meta( (int) $term_id, 'snn_cm_guest', $value === 'members' ? '' : $value );
+}
+
+/** The choices for who can see a category. */
+function snn_cm_guest_options() {
+    return [
+        'members' => 'Members only',
+        'titles'  => 'Titles, then log in to read',
+        'open'    => 'Everything, open to all',
+    ];
 }
 
 function snn_cm_admin_page() {
@@ -1833,7 +2052,16 @@ function snn_cm_admin_page() {
                     <option value="members" <?= selected( $s['visibility'], 'members', false ) ?>>Members only (logged-in users) &mdash; default</option>
                     <option value="public" <?= selected( $s['visibility'], 'public', false ) ?>>Everyone, including guests (guests still cannot post)</option>
                 </select>
-                <p style="<?= $hint ?>">Guests who cannot see the forum get a register / log-in box instead. To require a paid plan, use the <code>snn_community_is_member</code> filter.</p>
+                <p style="<?= $hint ?>">Guests get a register / log-in box, unless a category below is open to them. To require a paid plan, use the <code>snn_community_is_member</code> filter.</p>
+
+                <label style="<?= $label ?>;margin-top:20px">Community page</label>
+                <select name="snn_cm_forum_page" style="<?= $input ?>;max-width:360px">
+                    <option value="0" <?= selected( (int) $s['forum_page'], 0, false ) ?>>None: topics use ?snn_topic= links</option>
+                    <?php foreach ( get_pages( [ 'post_status' => 'publish', 'sort_column' => 'post_title' ] ) as $pg ) : ?>
+                        <option value="<?= (int) $pg->ID ?>" <?= selected( (int) $s['forum_page'], (int) $pg->ID, false ) ?>><?= esc_html( $pg->post_title ) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p style="<?= $hint ?>">The page where you put <code>[snn_learn_community]</code>. Topics then get readable addresses such as <code>/community/how-to-install-12/</code>, which search engines can index.</p>
             </div>
 
             <!-- Posting -->
@@ -1875,10 +2103,11 @@ function snn_cm_admin_page() {
             $swatch     = 'width:46px;height:34px;padding:2px;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;background:#fff';
             $palette    = snn_cm_palette();
             $new_color  = $palette[ count( $cat_rows ) % count( $palette ) ]; // the next colour nobody has yet
+            $guest_locked = $s['visibility'] === 'public'; // everyone can read the forum already, so the guest setting does not apply
             ?>
             <div style="<?= $card ?>">
                 <h2 style="<?= $h2 ?>">Categories</h2>
-                <p style="<?= $hint ?>;margin:-6px 0 18px;max-width:760px">Add, rename, describe, reorder and delete categories here. The arrows move a category up or down. A description shows as a tooltip in the sidebar.</p>
+                <p style="<?= $hint ?>;margin:-6px 0 18px;max-width:760px">Add, rename, describe, reorder and delete categories here. The arrows move a category up or down. A description shows as a tooltip in the sidebar. "Guests can see" decides what logged-out visitors get in each category.<?= $guest_locked ? ' The forum is open to everyone, so guests already see every category.' : '' ?></p>
 
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px;margin-bottom:22px">
                     <div>
@@ -1904,7 +2133,7 @@ function snn_cm_admin_page() {
 
                 <?php if ( $cat_rows ) : ?>
                     <table class="widefat striped snn-cm-cats" style="margin-bottom:18px">
-                        <thead><tr><th style="width:96px">Order</th><th style="width:24%">Name</th><th style="width:72px">Colour</th><th>Description</th><th style="width:84px">Topics</th><th style="width:84px">Delete</th></tr></thead>
+                        <thead><tr><th style="width:96px">Order</th><th style="width:24%">Name</th><th style="width:72px">Colour</th><th>Description</th><th style="width:210px">Guests can see</th><th style="width:84px">Topics</th><th style="width:84px">Delete</th></tr></thead>
                         <tbody>
                             <?php foreach ( $cat_rows as $t ) : ?>
                             <tr>
@@ -1915,6 +2144,13 @@ function snn_cm_admin_page() {
                                 <td><input type="text" name="snn_cm_cats[<?= (int) $t->term_id ?>][name]" value="<?= esc_attr( $t->name ) ?>" maxlength="200" style="<?= $cell ?>" aria-label="Name"></td>
                                 <td><input type="color" name="snn_cm_cats[<?= (int) $t->term_id ?>][color]" value="<?= esc_attr( snn_cm_term_color( $t->term_id ) ) ?>" style="<?= $swatch ?>" aria-label="Colour for <?= esc_attr( $t->name ) ?>"></td>
                                 <td><textarea name="snn_cm_cats[<?= (int) $t->term_id ?>][description]" rows="2" style="<?= $cell ?>" aria-label="Description for <?= esc_attr( $t->name ) ?>"><?= esc_textarea( $t->description ) ?></textarea></td>
+                                <td>
+                                    <select name="snn_cm_cats[<?= (int) $t->term_id ?>][guest]" style="<?= $cell ?>" aria-label="What guests can see in <?= esc_attr( $t->name ) ?>"<?= $guest_locked ? ' disabled' : '' ?>>
+                                        <?php foreach ( snn_cm_guest_options() as $val => $text ) : ?>
+                                            <option value="<?= $val ?>" <?= selected( snn_cm_term_guest_access( $t->term_id ), $val, false ) ?>><?= esc_html( $text ) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
                                 <td><?= (int) $t->count ?></td>
                                 <td><label style="font-size:13px;white-space:nowrap"><input type="checkbox" name="snn_cm_cats[<?= (int) $t->term_id ?>][delete]" value="1"> Delete</label></td>
                             </tr>
@@ -1930,6 +2166,11 @@ function snn_cm_admin_page() {
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
                         <input type="text" name="snn_cm_new_cat[name]" maxlength="200" placeholder="Category name" style="<?= $cell ?>" aria-label="New category name">
                         <textarea name="snn_cm_new_cat[description]" rows="2" placeholder="Description (optional)" style="<?= $cell ?>" aria-label="New category description"></textarea>
+                        <select name="snn_cm_new_cat[guest]" style="<?= $cell ?>" aria-label="What guests can see in the new category"<?= $guest_locked ? ' disabled' : '' ?>>
+                            <?php foreach ( snn_cm_guest_options() as $val => $text ) : ?>
+                                <option value="<?= $val ?>"><?= esc_html( $text ) ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;color:#374151">
                         <input type="color" name="snn_cm_new_cat[color]" value="<?= esc_attr( $new_color ) ?>" style="<?= $swatch ?>" aria-label="New category colour">
@@ -2026,7 +2267,7 @@ function snn_cm_admin_page() {
                 </div>
                 <p style="font-size:13px;color:#6b7280;margin:14px 0 0;line-height:1.7">
                     Optional: <code>[snn_learn_community category="general"]</code> opens one category first.
-                    Topics open in place with a link like <code>?snn_topic=123</code>.
+                    Topics open in place. With a Community page chosen above, they get addresses like <code>/community/how-to-install-123/</code>; otherwise <code>?snn_topic=123</code>.
                 </p>
                 <p style="font-size:13px;margin:14px 0 0">
                     <a class="button" href="<?= esc_url( admin_url( 'edit.php?post_type=' . SNN_CM_PT ) ) ?>">Topics</a>

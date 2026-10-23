@@ -407,6 +407,7 @@
     border-radius: var(--snn-cm-radius);
     background: #fafafb;
 }
+.snn-cm-teaser { margin-top: 18px; }
 .snn-cm-locked-icon { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 50%; background: #fff; border: 1px solid var(--snn-cm-line); color: var(--snn-cm-muted); }
 .snn-cm-locked-title { margin: 12px 0 4px; font-size: 17px; font-weight: 700; }
 .snn-cm-locked-text { margin: 0 auto; max-width: 440px; font-size: 14px; line-height: 1.6; color: var(--snn-cm-muted); }

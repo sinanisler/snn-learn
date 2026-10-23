@@ -742,11 +742,19 @@
       heading.textContent = state.search ? 'Search: "' + state.search + '"' : catName(state.cat);
     }
 
-    function setUrl(id) {
+    /** The address bar follows the open topic. With nothing given it goes back to the list. */
+    function setUrl(url) {
+      history.pushState({ snnTopic: url ? 1 : 0 }, '', url || root.dataset.listUrl);
+    }
+
+    /** The topic the address bar points at: ?snn_topic=12, or a topic address such as /community/how-to-install-12/. */
+    function topicFromUrl() {
       var u = new URL(window.location.href);
-      if (id) u.searchParams.set('snn_topic', id);
-      else u.searchParams.delete('snn_topic');
-      history.pushState({ snnTopic: id || 0 }, '', u.pathname + u.search + u.hash);
+      var id = parseInt(u.searchParams.get('snn_topic'), 10);
+      if (id) return id;
+      var m = u.pathname.match(/-(\d+)\/?$/);
+      var list = new URL(root.dataset.listUrl, window.location.href).href;
+      return m && u.href.indexOf(list) === 0 ? parseInt(m[1], 10) : 0;
     }
 
     function fetchList(page, reset) {
@@ -769,11 +777,11 @@
       state.topic = id;
       show('thread');
       threadView.innerHTML = '<div class="snn-cm-loading">Loading…</div>';
-      if (push) setUrl(id);
       return post('snn_cm_thread', { post_id: id }).then(function (d) {
         if (state.topic !== id) return;   // the reader moved on before this came back
         threadView.innerHTML = d.html;
         initThread(threadView);
+        if (push) setUrl(d.url);          // the topic's own address, once it has loaded
       }).catch(function (e) {
         if (state.topic !== id) return;
         if (e.login) {
@@ -1137,14 +1145,17 @@
 
     /* browser back and forward */
     window.addEventListener('popstate', function () {
-      var id = parseInt(new URL(window.location.href).searchParams.get('snn_topic'), 10) || 0;
+      var id = topicFromUrl();
       if (id) openThread(id, false);
       else closeThread(false);
     });
 
-    /* open a topic from the URL on first load */
-    var first = parseInt(new URL(window.location.href).searchParams.get('snn_topic'), 10) || 0;
-    if (first) openThread(first, false);
+    /* the server has already rendered the topic in the address (data-open-topic); it only needs wiring up */
+    var first = parseInt(root.dataset.openTopic, 10) || 0;
+    if (first) {
+      state.topic = first;
+      initThread(threadView);
+    }
   }
 
   /* ---------- profile card ---------- */
